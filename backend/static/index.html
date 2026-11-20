@@ -212,7 +212,7 @@
               </button>
               <button type="button" @click="openAllAlertsModal"
                       class="px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-700 hover:bg-blue-100">
-                Xem tất cả sự cố ({{ totalAlertsCount ?? '—' }})
+                Xem tất cả sự cố
               </button>
             </div>
           </div>
@@ -340,9 +340,6 @@
           <div class="bg-white border border-slate-200 rounded-xl p-4">
             <div class="flex items-center justify-between mb-2.5">
               <div class="text-xs font-semibold text-slate-800">File capture Wireshark .pcapng trên wlan0</div>
-              <span class="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                Đang ghi tự động (tối đa 5 file × 512 KB)
-              </span>
             </div>
             <div v-if="capturesList.length > 0" class="flex flex-wrap gap-2">
               <a v-for="c in capturesList" :key="c.filename"
@@ -1283,13 +1280,11 @@
         </header>
         <dl class="grid grid-cols-1 sm:grid-cols-[11rem_minmax(0,1fr)] text-sm gap-x-4 gap-y-2 py-4">
           <dt class="text-slate-500">Thiết bị</dt>
-          <dd class="text-slate-900">{{ selectedAlertModal.device_name || selectedAlertModal.device_key }}
-            <span v-if="selectedAlertModal.device_name" class="text-slate-500 font-mono text-xs">({{ selectedAlertModal.device_key }})</span>
-          </dd>
+          <dd class="text-slate-900">{{ selectedAlertModal.device_name || selectedAlertModal.device_key }}</dd>
           <dt class="text-slate-500">Thời gian phát hiện</dt>
           <dd>{{ formatAlertTimestamp(selectedAlertModal.created_at) }}</dd>
           <dt class="text-slate-500">Mô hình kích hoạt</dt>
-          <dd>{{ alertModelName(selectedAlertModal) }} <span class="text-xs text-slate-500">{{ selectedAlertModal.model_version }}</span></dd>
+          <dd>{{ alertModelName(selectedAlertModal) }}</dd>
           <dt class="text-slate-500">Anomaly Score</dt>
           <dd v-if="alertScore !== null" class="space-y-1">
             <div class="font-mono font-semibold" :class="alertScore < 0 ? 'text-rose-700' : 'text-emerald-700'">{{ alertScore }}</div>
@@ -1309,7 +1304,7 @@
             <li v-for="(reason, index) in selectedAlertModal.reason_json.reasons" :key="index">{{ reason }}</li>
           </ul>
         </div>
-        <h3 class="font-semibold text-sm text-slate-800 mb-2">Ảnh chụp 14 đặc trưng mạng (5 giây)</h3>
+        <h3 class="font-semibold text-sm text-slate-800 mb-2">14 đặc trưng</h3>
         <p v-if="!Object.keys(selectedAlertModal.features || {}).length" class="text-xs text-slate-500 mb-2">
           Sự cố này chưa có cửa sổ đã liên kết.
         </p>
@@ -1376,9 +1371,19 @@
       LOW: 'bg-slate-100 text-slate-600 border-slate-200'
     };
     const ALERT_CATEGORIES = {
-      SILENCE_TIMEOUT: 'DISCONNECT', TH4_SILENCE: 'DISCONNECT', TH3_RECONNECT: 'RECONNECT',
-      AUTH_FAILURE: 'AUTH_FAIL', TH6_AUTH_FAIL: 'AUTH_FAIL',
-      TH1_HIGH_RATE: 'TRAFFIC_ANOMALY', TH2_LARGE_PAYLOAD: 'TRAFFIC_ANOMALY', TH5_BURST_TRAFFIC: 'TRAFFIC_ANOMALY'
+      SILENCE_TIMEOUT: 'Mất kết nối',
+      TH4_SILENCE: 'Mất kết nối',
+      DISCONNECT: 'Mất kết nối',
+      TH3_RECONNECT: 'Tái kết nối',
+      RECONNECT: 'Tái kết nối',
+      AUTH_FAILURE: 'Lỗi xác thực',
+      TH6_AUTH_FAIL: 'Lỗi xác thực',
+      AUTH_FAIL: 'Lỗi xác thực',
+      TH1_HIGH_RATE: 'Bất thường lưu lượng',
+      TH2_LARGE_PAYLOAD: 'Bất thường lưu lượng',
+      TH5_BURST_TRAFFIC: 'Bất thường lưu lượng',
+      TRAFFIC_ANOMALY: 'Bất thường lưu lượng',
+      UNKNOWN_ANOMALY: 'Bất thường lưu lượng'
     };
     const OBSERVATION_MODELS = [
       { key: 'local_iso', label: 'Isolation Forest' },
@@ -1387,7 +1392,11 @@
     ];
     const alertSeverity = severity => ALERT_SEVERITY[severity?.toUpperCase()] || severity?.toUpperCase() || '—';
     const alertSeverityClass = severity => ALERT_SEVERITY_STYLE[alertSeverity(severity)] || ALERT_SEVERITY_STYLE.LOW;
-    const alertCategory = alert => ALERT_CATEGORIES[alert.predicted_label] || alert.predicted_label;
+    const alertCategory = alert => {
+      if (!alert) return '—';
+      const label = alert.predicted_label || '';
+      return ALERT_CATEGORIES[label] || label || 'Bất thường lưu lượng';
+    };
     const formatTime = ts => ts ? new Date(ts * 1000).toLocaleTimeString('vi-VN') : '--:--:--';
     const formatScenarioWithCode = label => {
       if (!label) return '—';
