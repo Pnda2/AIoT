@@ -1,0 +1,66 @@
+======================================================================
+BƯỚC 1: QUÉT VÀ NHẬN DIỆN CÁC PHIÊN THU DỮ LIỆU (SESSIONS)
+======================================================================
+[DISCOVER] Tìm thấy 14 phiên thu trên 2 đợt (batch):
+  ├── [Session 01] batch_01/TH0_Normal.pcapng     | esp32_01,esp32_02,esp32_05,esp32_06 | Gửi định kỳ 2s (tất cả node online) | 10.0 phút | 2,792 gói | 364.7 KB
+  ├── [Session 02] batch_01/TH1_HighRate.pcapng   | esp32_06   | Bắn nhanh ~15 msg/s        | 5.0 phút | 10,231 gói | 1.39 MB
+  ├── [Session 03] batch_01/TH2_LargePayload.pcapng | esp32_06   | Payload lớn ~1.5 KB        | 5.0 phút | 1,421 gói | 375.4 KB
+  ├── [Session 04] batch_01/TH3_Reconnect.pcapng  | esp32_06   | Connect/Drop 3s liên tục   | 5.0 phút | 2,330 gói | 252.1 KB
+  ├── [Session 05] batch_01/TH4_Silence.pcapng    | esp32_06   | Im lặng / Mất kết nối      | 5.0 phút | 813 gói | 102.5 KB
+  ├── [Session 06] batch_01/TH5_BurstTraffic.pcapng | esp32_06   | Xả dồn 20 gói theo đợt     | 5.0 phút | 2,913 gói | 399.7 KB
+  ├── [Session 07] batch_01/TH6_AuthFail.pcapng   | esp32_06   | Thử xác thực sai User/Pass MQTT | 5.0 phút | 2,710 gói | 244.9 KB
+  ├── [Session 08] batch_02/TH0_Normal.pcapng     | esp32_02,esp32_05,esp32_06 | Gửi định kỳ 2s (tất cả node online) | 10.0 phút | 2,206 gói | 289.3 KB
+  ├── [Session 09] batch_02/TH1_HighRate.pcapng   | esp32_05   | Bắn nhanh ~15 msg/s        | 8.0 phút | 15,542 gói | 2.15 MB
+  ├── [Session 10] batch_02/TH2_LargePayload.pcapng | esp32_05   | Payload lớn ~1.5 KB        | 8.0 phút | 2,178 gói | 583.7 KB
+  ├── [Session 11] batch_02/TH3_Reconnect.pcapng  | esp32_05   | Connect/Drop 3s liên tục   | 8.0 phút | 4,670 gói | 520.3 KB
+  ├── [Session 12] batch_02/TH4_Silence.pcapng    | esp32_05   | Im lặng / Mất kết nối      | 8.0 phút | 1,454 gói | 187.5 KB
+  ├── [Session 13] batch_02/TH5_BurstTraffic.pcapng | esp32_05   | Xả dồn 20 gói theo đợt     | 8.0 phút | 4,262 gói | 615.1 KB
+  └── [Session 14] batch_02/TH6_AuthFail.pcapng   | esp32_05   | Thử xác thực sai User/Pass MQTT | 8.0 phút | 4,851 gói | 435.9 KB
+-> [TỔNG CỘNG] 14 phiên thu (2 batch) | Thời lượng: 98.0 phút | Tổng gói tin thô: 58,373 gói.
+======================================================================
+BƯỚC 2: CẮT LÁT THEO CỬA SỔ THỜI GIAN (TIME-WINDOWING: T = 5.0 GIÂY)
+======================================================================
+[CONFIG] Cửa sổ thời gian (Window Size): 5.0 giây | Bước nhảy (Stride): 5.0 giây (Non-overlapping)
+[PROCESS] Đang trích xuất đặc trưng cho từng phiên...
+  -> [batch_01] Phiên TH0 (normal       ):  439 cửa sổ thời gian (Đã loại 41 cửa sổ rỗng do node tắt/hết pin)
+  -> [batch_01] Phiên TH1 (high_rate    ):   60 cửa sổ thời gian
+  -> [batch_01] Phiên TH2 (large_payload):   60 cửa sổ thời gian
+  -> [batch_01] Phiên TH3 (reconnect    ):   60 cửa sổ thời gian
+  -> [batch_01] Phiên TH4 (silence      ):   60 cửa sổ thời gian (Trong đó: 40 cửa sổ rỗng = 0 gói)
+  -> [batch_01] Phiên TH5 (burst        ):   60 cửa sổ thời gian
+  -> [batch_01] Phiên TH6 (auth_fail    ):   60 cửa sổ thời gian
+  -> [batch_02] Phiên TH0 (normal       ):  292 cửa sổ thời gian (Đã loại 68 cửa sổ rỗng do node tắt/hết pin)
+  -> [batch_02] Phiên TH1 (high_rate    ):   96 cửa sổ thời gian
+  -> [batch_02] Phiên TH2 (large_payload):   96 cửa sổ thời gian
+  -> [batch_02] Phiên TH3 (reconnect    ):   96 cửa sổ thời gian
+  -> [batch_02] Phiên TH4 (silence      ):   96 cửa sổ thời gian (Trong đó: 64 cửa sổ rỗng = 0 gói)
+  -> [batch_02] Phiên TH5 (burst        ):   96 cửa sổ thời gian
+  -> [batch_02] Phiên TH6 (auth_fail    ):   96 cửa sổ thời gian
+-> [TỔNG CỘNG ĐÃ TẠO]: 1,667 cửa sổ thời gian (Windows).
+======================================================================
+BƯỚC 3: TÍNH TOÁN BỘ ĐẶC TRƯNG CỬA SỔ (FEATURE EXTRACTION)
+======================================================================
+[SCHEMA] Đã tính 14 đặc trưng lưu lượng mạng cho mỗi cửa sổ 5s:
+   1. packet_count       : Tổng số gói tin trong 5s (gói)
+   2. byte_count         : Tổng lưu lượng trong 5s (bytes)
+   3. packet_rate        : Tần suất gói (packet_count / 5.0)
+   4. byte_rate          : Tốc độ băng thông (byte_count / 5.0)
+   5. len_mean           : Kích thước gói tin trung bình (bytes)
+   6. len_std            : Độ lệch chuẩn kích thước gói (bytes)
+   7. len_max            : Kích thước gói lớn nhất (bytes)
+   8. iat_mean           : Khoảng cách thời gian trung bình giữa 2 gói (ms)
+   9. iat_std            : Độ lệch chuẩn IAT (ms)
+  10. iat_max            : Khoảng cách thời gian lớn nhất giữa 2 gói (ms)
+  11. tcp_syn_count      : Số lượng cờ SYN (phát hiện kết nối/reconnect)
+  12. tcp_fin_count      : Số lượng cờ FIN (ngắt kết nối)
+  13. tcp_rst_count      : Số lượng cờ RST (từ chối/lỗi bắt tay)
+  14. is_empty_window    : Cờ báo cửa sổ rỗng (0 gói - dành cho Watchdog TH4)
+======================================================================
+BƯỚC 4: XUẤT TẬP DỮ LIỆU ĐẶC TRƯNG CHO MÁY HỌC (FEATURE DATASET)
+======================================================================
+[METADATA] Đã gán nhãn ground_truth:
+  - Nhãn nhị phân (binary_label): 0 = Normal (731 mẫu), 1 = Anomaly (936 mẫu)
+  - Nhãn chi tiết (scenario_label): auth_fail, burst, high_rate, large_payload, normal, reconnect, silence
+[OUTPUT] Đã xuất file đặc trưng hoàn chỉnh vào:
+  -> C:\TaiLieu\AIoT\data\processed\local_feature_windows.csv (1,667 dòng x 20 cột)
+[SUCCESS] Pipeline trích xuất đặc trưng hoàn tất trong 0.63 giây!

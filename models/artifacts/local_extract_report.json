@@ -1,0 +1,274 @@
+{
+  "created_at": 1794410842.351029,
+  "window_size_sec": 5.0,
+  "total_batches": 2,
+  "total_sessions": 14,
+  "total_duration_min": 98.0,
+  "total_raw_packets": 58373,
+  "total_windows": 1667,
+  "normal_windows": 731,
+  "anomaly_windows": 936,
+  "feature_columns": [
+    "packet_count",
+    "byte_count",
+    "packet_rate",
+    "byte_rate",
+    "len_mean",
+    "len_std",
+    "len_max",
+    "iat_mean",
+    "iat_std",
+    "iat_max",
+    "tcp_syn_count",
+    "tcp_fin_count",
+    "tcp_rst_count",
+    "is_empty_window"
+  ],
+  "csv_path": "C:\\TaiLieu\\AIoT\\data\\processed\\local_feature_windows.csv",
+  "sessions": [
+    {
+      "session": 1,
+      "batch": "batch_01",
+      "filename": "batch_01/TH0_Normal.pcapng",
+      "scenario_code": "TH0",
+      "scenario_label": "normal",
+      "binary_label": 0,
+      "assigned_nodes": [
+        "esp32_01",
+        "esp32_02",
+        "esp32_05",
+        "esp32_06"
+      ],
+      "duration_min": 10.0,
+      "raw_packets": 2792,
+      "size_kb": 364.72,
+      "windows_extracted": 439,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 41
+    },
+    {
+      "session": 2,
+      "batch": "batch_01",
+      "filename": "batch_01/TH1_HighRate.pcapng",
+      "scenario_code": "TH1",
+      "scenario_label": "high_rate",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_06"
+      ],
+      "duration_min": 5.0,
+      "raw_packets": 10231,
+      "size_kb": 1428.25,
+      "windows_extracted": 60,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 3,
+      "batch": "batch_01",
+      "filename": "batch_01/TH2_LargePayload.pcapng",
+      "scenario_code": "TH2",
+      "scenario_label": "large_payload",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_06"
+      ],
+      "duration_min": 5.0,
+      "raw_packets": 1421,
+      "size_kb": 375.43,
+      "windows_extracted": 60,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 4,
+      "batch": "batch_01",
+      "filename": "batch_01/TH3_Reconnect.pcapng",
+      "scenario_code": "TH3",
+      "scenario_label": "reconnect",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_06"
+      ],
+      "duration_min": 5.0,
+      "raw_packets": 2330,
+      "size_kb": 252.14,
+      "windows_extracted": 60,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 5,
+      "batch": "batch_01",
+      "filename": "batch_01/TH4_Silence.pcapng",
+      "scenario_code": "TH4",
+      "scenario_label": "silence",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_06"
+      ],
+      "duration_min": 5.0,
+      "raw_packets": 813,
+      "size_kb": 102.52,
+      "windows_extracted": 60,
+      "empty_windows_kept": 40,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 6,
+      "batch": "batch_01",
+      "filename": "batch_01/TH5_BurstTraffic.pcapng",
+      "scenario_code": "TH5",
+      "scenario_label": "burst",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_06"
+      ],
+      "duration_min": 5.0,
+      "raw_packets": 2913,
+      "size_kb": 399.68,
+      "windows_extracted": 60,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 7,
+      "batch": "batch_01",
+      "filename": "batch_01/TH6_AuthFail.pcapng",
+      "scenario_code": "TH6",
+      "scenario_label": "auth_fail",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_06"
+      ],
+      "duration_min": 5.0,
+      "raw_packets": 2710,
+      "size_kb": 244.94,
+      "windows_extracted": 60,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 8,
+      "batch": "batch_02",
+      "filename": "batch_02/TH0_Normal.pcapng",
+      "scenario_code": "TH0",
+      "scenario_label": "normal",
+      "binary_label": 0,
+      "assigned_nodes": [
+        "esp32_02",
+        "esp32_05",
+        "esp32_06"
+      ],
+      "duration_min": 10.0,
+      "raw_packets": 2206,
+      "size_kb": 289.32,
+      "windows_extracted": 292,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 68
+    },
+    {
+      "session": 9,
+      "batch": "batch_02",
+      "filename": "batch_02/TH1_HighRate.pcapng",
+      "scenario_code": "TH1",
+      "scenario_label": "high_rate",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "duration_min": 8.0,
+      "raw_packets": 15542,
+      "size_kb": 2205.72,
+      "windows_extracted": 96,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 10,
+      "batch": "batch_02",
+      "filename": "batch_02/TH2_LargePayload.pcapng",
+      "scenario_code": "TH2",
+      "scenario_label": "large_payload",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "duration_min": 8.0,
+      "raw_packets": 2178,
+      "size_kb": 583.68,
+      "windows_extracted": 96,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 11,
+      "batch": "batch_02",
+      "filename": "batch_02/TH3_Reconnect.pcapng",
+      "scenario_code": "TH3",
+      "scenario_label": "reconnect",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "duration_min": 8.0,
+      "raw_packets": 4670,
+      "size_kb": 520.34,
+      "windows_extracted": 96,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 12,
+      "batch": "batch_02",
+      "filename": "batch_02/TH4_Silence.pcapng",
+      "scenario_code": "TH4",
+      "scenario_label": "silence",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "duration_min": 8.0,
+      "raw_packets": 1454,
+      "size_kb": 187.52,
+      "windows_extracted": 96,
+      "empty_windows_kept": 64,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 13,
+      "batch": "batch_02",
+      "filename": "batch_02/TH5_BurstTraffic.pcapng",
+      "scenario_code": "TH5",
+      "scenario_label": "burst",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "duration_min": 8.0,
+      "raw_packets": 4262,
+      "size_kb": 615.14,
+      "windows_extracted": 96,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 0
+    },
+    {
+      "session": 14,
+      "batch": "batch_02",
+      "filename": "batch_02/TH6_AuthFail.pcapng",
+      "scenario_code": "TH6",
+      "scenario_label": "auth_fail",
+      "binary_label": 1,
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "duration_min": 8.0,
+      "raw_packets": 4851,
+      "size_kb": 435.94,
+      "windows_extracted": 96,
+      "empty_windows_kept": 0,
+      "empty_windows_skipped": 0
+    }
+  ],
+  "extract_log": "======================================================================\nBƯỚC 1: QUÉT VÀ NHẬN DIỆN CÁC PHIÊN THU DỮ LIỆU (SESSIONS)\n======================================================================\n[DISCOVER] Tìm thấy 14 phiên thu trên 2 đợt (batch):\n  ├── [Session 01] batch_01/TH0_Normal.pcapng     | esp32_01,esp32_02,esp32_05,esp32_06 | Gửi định kỳ 2s (tất cả node online) | 10.0 phút | 2,792 gói | 364.7 KB\n  ├── [Session 02] batch_01/TH1_HighRate.pcapng   | esp32_06   | Bắn nhanh ~15 msg/s        | 5.0 phút | 10,231 gói | 1.39 MB\n  ├── [Session 03] batch_01/TH2_LargePayload.pcapng | esp32_06   | Payload lớn ~1.5 KB        | 5.0 phút | 1,421 gói | 375.4 KB\n  ├── [Session 04] batch_01/TH3_Reconnect.pcapng  | esp32_06   | Connect/Drop 3s liên tục   | 5.0 phút | 2,330 gói | 252.1 KB\n  ├── [Session 05] batch_01/TH4_Silence.pcapng    | esp32_06   | Im lặng / Mất kết nối      | 5.0 phút | 813 gói | 102.5 KB\n  ├── [Session 06] batch_01/TH5_BurstTraffic.pcapng | esp32_06   | Xả dồn 20 gói theo đợt     | 5.0 phút | 2,913 gói | 399.7 KB\n  ├── [Session 07] batch_01/TH6_AuthFail.pcapng   | esp32_06   | Thử xác thực sai User/Pass MQTT | 5.0 phút | 2,710 gói | 244.9 KB\n  ├── [Session 08] batch_02/TH0_Normal.pcapng     | esp32_02,esp32_05,esp32_06 | Gửi định kỳ 2s (tất cả node online) | 10.0 phút | 2,206 gói | 289.3 KB\n  ├── [Session 09] batch_02/TH1_HighRate.pcapng   | esp32_05   | Bắn nhanh ~15 msg/s        | 8.0 phút | 15,542 gói | 2.15 MB\n  ├── [Session 10] batch_02/TH2_LargePayload.pcapng | esp32_05   | Payload lớn ~1.5 KB        | 8.0 phút | 2,178 gói | 583.7 KB\n  ├── [Session 11] batch_02/TH3_Reconnect.pcapng  | esp32_05   | Connect/Drop 3s liên tục   | 8.0 phút | 4,670 gói | 520.3 KB\n  ├── [Session 12] batch_02/TH4_Silence.pcapng    | esp32_05   | Im lặng / Mất kết nối      | 8.0 phút | 1,454 gói | 187.5 KB\n  ├── [Session 13] batch_02/TH5_BurstTraffic.pcapng | esp32_05   | Xả dồn 20 gói theo đợt     | 8.0 phút | 4,262 gói | 615.1 KB\n  └── [Session 14] batch_02/TH6_AuthFail.pcapng   | esp32_05   | Thử xác thực sai User/Pass MQTT | 8.0 phút | 4,851 gói | 435.9 KB\n-> [TỔNG CỘNG] 14 phiên thu (2 batch) | Thời lượng: 98.0 phút | Tổng gói tin thô: 58,373 gói.\n======================================================================\nBƯỚC 2: CẮT LÁT THEO CỬA SỔ THỜI GIAN (TIME-WINDOWING: T = 5.0 GIÂY)\n======================================================================\n[CONFIG] Cửa sổ thời gian (Window Size): 5.0 giây | Bước nhảy (Stride): 5.0 giây (Non-overlapping)\n[PROCESS] Đang trích xuất đặc trưng cho từng phiên...\n  -> [batch_01] Phiên TH0 (normal       ):  439 cửa sổ thời gian (Đã loại 41 cửa sổ rỗng do node tắt/hết pin)\n  -> [batch_01] Phiên TH1 (high_rate    ):   60 cửa sổ thời gian\n  -> [batch_01] Phiên TH2 (large_payload):   60 cửa sổ thời gian\n  -> [batch_01] Phiên TH3 (reconnect    ):   60 cửa sổ thời gian\n  -> [batch_01] Phiên TH4 (silence      ):   60 cửa sổ thời gian (Trong đó: 40 cửa sổ rỗng = 0 gói)\n  -> [batch_01] Phiên TH5 (burst        ):   60 cửa sổ thời gian\n  -> [batch_01] Phiên TH6 (auth_fail    ):   60 cửa sổ thời gian\n  -> [batch_02] Phiên TH0 (normal       ):  292 cửa sổ thời gian (Đã loại 68 cửa sổ rỗng do node tắt/hết pin)\n  -> [batch_02] Phiên TH1 (high_rate    ):   96 cửa sổ thời gian\n  -> [batch_02] Phiên TH2 (large_payload):   96 cửa sổ thời gian\n  -> [batch_02] Phiên TH3 (reconnect    ):   96 cửa sổ thời gian\n  -> [batch_02] Phiên TH4 (silence      ):   96 cửa sổ thời gian (Trong đó: 64 cửa sổ rỗng = 0 gói)\n  -> [batch_02] Phiên TH5 (burst        ):   96 cửa sổ thời gian\n  -> [batch_02] Phiên TH6 (auth_fail    ):   96 cửa sổ thời gian\n-> [TỔNG CỘNG ĐÃ TẠO]: 1,667 cửa sổ thời gian (Windows).\n======================================================================\nBƯỚC 3: TÍNH TOÁN BỘ ĐẶC TRƯNG CỬA SỔ (FEATURE EXTRACTION)\n======================================================================\n[SCHEMA] Đã tính 14 đặc trưng lưu lượng mạng cho mỗi cửa sổ 5s:\n   1. packet_count       : Tổng số gói tin trong 5s (gói)\n   2. byte_count         : Tổng lưu lượng trong 5s (bytes)\n   3. packet_rate        : Tần suất gói (packet_count / 5.0)\n   4. byte_rate          : Tốc độ băng thông (byte_count / 5.0)\n   5. len_mean           : Kích thước gói tin trung bình (bytes)\n   6. len_std            : Độ lệch chuẩn kích thước gói (bytes)\n   7. len_max            : Kích thước gói lớn nhất (bytes)\n   8. iat_mean           : Khoảng cách thời gian trung bình giữa 2 gói (ms)\n   9. iat_std            : Độ lệch chuẩn IAT (ms)\n  10. iat_max            : Khoảng cách thời gian lớn nhất giữa 2 gói (ms)\n  11. tcp_syn_count      : Số lượng cờ SYN (phát hiện kết nối/reconnect)\n  12. tcp_fin_count      : Số lượng cờ FIN (ngắt kết nối)\n  13. tcp_rst_count      : Số lượng cờ RST (từ chối/lỗi bắt tay)\n  14. is_empty_window    : Cờ báo cửa sổ rỗng (0 gói - dành cho Watchdog TH4)\n======================================================================\nBƯỚC 4: XUẤT TẬP DỮ LIỆU ĐẶC TRƯNG CHO MÁY HỌC (FEATURE DATASET)\n======================================================================\n[METADATA] Đã gán nhãn ground_truth:\n  - Nhãn nhị phân (binary_label): 0 = Normal (731 mẫu), 1 = Anomaly (936 mẫu)\n  - Nhãn chi tiết (scenario_label): auth_fail, burst, high_rate, large_payload, normal, reconnect, silence\n[OUTPUT] Đã xuất file đặc trưng hoàn chỉnh vào:\n  -> C:\\TaiLieu\\AIoT\\data\\processed\\local_feature_windows.csv (1,667 dòng x 20 cột)\n[SUCCESS] Pipeline trích xuất đặc trưng hoàn tất trong 0.63 giây!"
+}

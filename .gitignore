@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C / C++ & Embedded build artifacts
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.map
+firmware/.pio/
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Temporary audit & scratch folders
+_audit_scratch_*/
+
+# Virtual Environments & IDEs
+.venv/
+venv/
+ENV/
+env/
+.vscode/
+.idea/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# SQLite journal / temp locks
+*.db-journal
+*.db-wal
+*.db-shm

@@ -1,0 +1,119 @@
+{
+  "batch": "batch_02",
+  "created_at": 1794406844.9058175,
+  "interface": "wlan0",
+  "all_online_nodes": [
+    "esp32_02",
+    "esp32_05",
+    "esp32_06"
+  ],
+  "target_attack_node": "esp32_05",
+  "node_ips": {
+    "esp32_02": "192.168.137.70",
+    "esp32_05": "192.168.137.54",
+    "esp32_06": "192.168.137.166",
+    "esp32_01": "192.168.137.112"
+  },
+  "sessions": [
+    {
+      "scenario_code": "TH0",
+      "filename": "TH0_Normal.pcapng",
+      "scenario_label": "normal",
+      "binary_label": 0,
+      "description": "Gửi định kỳ 2s (tất cả node online)",
+      "assigned_nodes": [
+        "esp32_02",
+        "esp32_05",
+        "esp32_06"
+      ],
+      "start_ts": 1794406846.9081042,
+      "end_ts": 1794407447.0220435,
+      "duration_sec": 600,
+      "size_kb": 289.32
+    },
+    {
+      "scenario_code": "TH1",
+      "filename": "TH1_HighRate.pcapng",
+      "scenario_label": "high_rate",
+      "binary_label": 1,
+      "description": "Bắn nhanh ~15 msg/s",
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "start_ts": 1794407449.048974,
+      "end_ts": 1794407929.3900445,
+      "duration_sec": 480,
+      "size_kb": 2205.72
+    },
+    {
+      "scenario_code": "TH2",
+      "filename": "TH2_LargePayload.pcapng",
+      "scenario_label": "large_payload",
+      "binary_label": 1,
+      "description": "Payload lớn ~1.5 KB",
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "start_ts": 1794407935.5242062,
+      "end_ts": 1794408415.614063,
+      "duration_sec": 480,
+      "size_kb": 583.68
+    },
+    {
+      "scenario_code": "TH3",
+      "filename": "TH3_Reconnect.pcapng",
+      "scenario_label": "reconnect",
+      "binary_label": 1,
+      "description": "Connect/Drop 3s liên tục",
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "start_ts": 1794408421.6436424,
+      "end_ts": 1794408901.7580552,
+      "duration_sec": 480,
+      "size_kb": 520.34
+    },
+    {
+      "scenario_code": "TH4",
+      "filename": "TH4_Silence.pcapng",
+      "scenario_label": "silence",
+      "binary_label": 1,
+      "description": "Im lặng / Mất kết nối",
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "start_ts": 1794408907.8036263,
+      "end_ts": 1794409388.3900476,
+      "duration_sec": 480,
+      "size_kb": 187.52
+    },
+    {
+      "scenario_code": "TH5",
+      "filename": "TH5_BurstTraffic.pcapng",
+      "scenario_label": "burst",
+      "binary_label": 1,
+      "description": "Xả dồn 20 gói theo đợt",
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "start_ts": 1794409394.406683,
+      "end_ts": 1794409874.7180474,
+      "duration_sec": 480,
+      "size_kb": 615.14
+    },
+    {
+      "scenario_code": "TH6",
+      "filename": "TH6_AuthFail.pcapng",
+      "scenario_label": "auth_fail",
+      "binary_label": 1,
+      "description": "Thử xác thực sai User/Pass MQTT",
+      "assigned_nodes": [
+        "esp32_05"
+      ],
+      "start_ts": 1794409882.602883,
+      "end_ts": 1794410363.1380363,
+      "duration_sec": 480,
+      "size_kb": 435.94
+    }
+  ]
+}

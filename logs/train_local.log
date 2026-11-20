@@ -1,0 +1,42 @@
+======================================================================
+BƯỚC 1: NẠP, LÀM SẠCH & CHIA TẬP THEO THỜI GIAN (LOCAL ESP32 - 14 ĐẶC TRƯNG)
+======================================================================
+[DATA] Nguồn dữ liệu: C:\TaiLieu\AIoT\data\processed\local_feature_windows.csv
+[DATA] Số dòng ban đầu: 1,667 cửa sổ 5s x 14 đặc trưng.
+[CLEAN] Đã xử lý 0 ô NaN/Inf.
+[CLEAN] Đã loại bỏ 30 mẫu trùng lặp trên các cửa sổ có lưu lượng (giữ nguyên 104 cửa sổ im lặng TH4) -> Còn 1,637 dòng sạch.
+1. Tập TRAIN (70% đầu):      1,144 mẫu (Normal: 492 | Anomaly: 652)
+2. Tập VALIDATION (15% giữa):242 mẫu
+3. Tập TEST ĐÓNG BĂNG (15%): 251 mẫu
+[ANTI-LEAKAGE] Split tuần tự theo thời gian từng kịch bản | Trùng lặp non-empty Train-Test: 0 mẫu.
+[OUTLIER] QuantileClipper (1%-99%) & RobustScaler chỉ FIT trên Train -> Đã clip 67 ô Train, 25 ô Val, 23 ô Test.
+======================================================================
+BƯỚC 2: HUẤN LUYỆN BASELINE ĐỐI CHUẨN (FIT TRÊN TẬP TRAIN)
+======================================================================
+-> [Baseline Rule + Watchdog]  Validation: Acc=90.08% | Prec=95.93% | Rec=86.13% | F1=90.77%
+-> [Baseline DecisionTree d=3] Validation: Acc=97.93% | Prec=97.14% | Rec=99.27% | F1=98.19%
+-> [Baseline DecisionTree 7TH] Validation: Acc=97.11% (gọi tên kịch bản)
+======================================================================
+BƯỚC 3: HUẤN LUYỆN CÁC MÔ HÌNH CHÍNH (LOCAL ESP32 PIPELINE)
+======================================================================
+-> [Isolation Forest (Chỉ học TH0)]  Val: Acc=94.63% | Prec=93.06% | Rec=97.81% | F1=95.37% (Train 0.131s)
+-> [Random Forest Binary]            Val: Acc=97.93% | Prec=96.48% | Rec=100.00% | F1=98.21% (Train 0.15s)
+-> [Random Forest 7 Kịch bản]        Val: Acc=98.35% (Train 0.154s)
+======================================================================
+BƯỚC 4: ĐÁNH GIÁ CHÍNH THỨC TRÊN TẬP TEST ĐÓNG BĂNG (15% CUỐI)
+======================================================================
+
+--- [NHÓM 1: PHÁT HIỆN BẤT THƯỜNG MẠCH ESP32 (0=Normal vs 1=Anomaly) TRÊN TEST] ---
+MÔ HÌNH                          |    ACC |   PREC |    REC |     F1 |    FPR |   LATENCY
+----------------------------------------------------------------------------------
+Rule + Watchdog (Baseline)       | 90.44% | 97.62% | 85.42% | 91.11% |  2.80% | 0.0000 ms
+Decision Tree d=3 (Baseline)     | 95.62% | 94.04% | 98.61% | 96.27% |  8.41% | 0.0000 ms
+Isolation Forest (Edge Runtime)  | 96.02% | 94.08% | 99.31% | 96.62% |  8.41% | 0.0247 ms
+Random Forest Binary             | 98.01% | 97.28% | 99.31% | 98.28% |  3.74% | 0.1044 ms
+
+--- [NHÓM 2: NHẬN DIỆN KỊCH BẢN CHI TIẾT (TH0..TH6) TRÊN TEST] ---
+• Decision Tree d=5 (Baseline): Acc=95.62% | Macro F1=96.40% | Latency=0.0060 ms
+• Random Forest Scenario:       Acc=98.01% | Macro F1=98.18% | Latency=0.1044 ms
+
+[OUTPUT] Đã nén lưu 3 model Pipeline + 105 mẫu Test hold-out vào C:\TaiLieu\AIoT\models\artifacts
+[SUCCESS] Hoàn tất huấn luyện Local ESP32 & lưu local_training_report.json!

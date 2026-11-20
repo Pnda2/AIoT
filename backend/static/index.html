@@ -1,0 +1,2069 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Giám sát lưu lượng IoT — Gateway Pi 5</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232563eb'/><path d='M6 17h4l3-7 5 12 3-5h5' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    body { font-family: 'Inter', system-ui, sans-serif; background-color: #f8fafc; color: #0f172a; }
+    code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <div id="app" class="flex flex-col min-h-screen">
+
+    <!-- HEADER -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6">
+        <div class="flex flex-wrap items-center justify-between gap-3 py-3">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center">
+              <i class="fa-solid fa-wave-square"></i>
+            </div>
+            <div>
+              <h1 class="font-bold text-base sm:text-lg text-slate-900 leading-tight">
+                Giám sát &amp; Phát hiện Bất thường IoT
+              </h1>
+              <div class="text-xs text-slate-500">Raspberry Pi 5 • 6x ESP32-S3 • MQTT :1883</div>
+            </div>
+          </div>
+
+          <div class="flex items-center flex-wrap gap-2 text-xs">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              Gateway 192.168.137.35
+            </span>
+            <span class="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-mono">
+              CPU {{ sysStatus.cpu_usage_pct ?? '--' }}%
+            </span>
+            <span class="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-mono">
+              RAM {{ sysStatus.ram_usage_pct ?? '--' }}%
+            </span>
+          </div>
+        </div>
+
+        <!-- TABS -->
+        <nav class="flex gap-1 overflow-x-auto -mb-px">
+          <button @click="currentTab = 'live_hardware'" :class="tabClass('live_hardware')">
+            <i class="fa-solid fa-microchip mr-1.5"></i>Live Hardware
+          </button>
+          <button @click="currentTab = 'local_dataset'" :class="tabClass('local_dataset')">
+            <i class="fa-solid fa-table mr-1.5"></i>Dữ liệu 5s
+          </button>
+          <button @click="currentTab = 'demo_lab'" :class="tabClass('demo_lab')">
+            <i class="fa-solid fa-vial mr-1.5"></i>Demo &amp; Mô phỏng
+          </button>
+          <button @click="currentTab = 'ciciot'" :class="tabClass('ciciot')">
+            <i class="fa-solid fa-chart-column mr-1.5"></i>Mô hình &amp; Huấn luyện
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <!-- MAIN -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-5">
+
+      <!-- ======================================================== -->
+      <!-- TAB 1: LIVE HARDWARE                                     -->
+      <!-- ======================================================== -->
+      <section v-if="currentTab === 'live_hardware'" class="space-y-5">
+
+        <!-- KPI Strip -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-500 font-medium">Thiết bị online</div>
+            <div class="mt-1 flex items-baseline justify-between">
+              <span class="text-2xl font-bold text-slate-900">{{ onlineCount }}<span class="text-sm font-normal text-slate-400">/{{ devicesList.length || 6 }}</span></span>
+              <div class="flex gap-1">
+                <span v-for="d in devicesList" :key="d.id" :title="d.display_name"
+                      class="w-2.5 h-2.5 rounded-full"
+                      :class="d.status === 'online' ? 'bg-emerald-500' : 'bg-slate-300'"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-500 font-medium">Tổng lưu lượng 5 giây gần nhất</div>
+            <div class="mt-1 flex items-baseline gap-2">
+              <span class="text-2xl font-bold text-blue-600 font-mono">{{ totalPacketRate.toFixed(1) }}</span>
+              <span class="text-xs text-slate-500">pkt/s • {{ Math.round(totalByteRate) }} B/s</span>
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-500 font-medium">Trạng thái mạng</div>
+            <div class="mt-1 flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full" :class="hasRecentAnomaly ? 'bg-rose-500' : 'bg-emerald-500'"></span>
+              <span class="text-lg font-bold" :class="hasRecentAnomaly ? 'text-rose-600' : 'text-emerald-700'">
+                {{ hasRecentAnomaly ? 'Phát hiện bất thường' : 'Bình thường' }}
+              </span>
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="text-xs text-slate-500 font-medium">Cảnh báo mới trong 5 phút</div>
+            <div class="mt-1 flex items-baseline justify-between">
+              <span class="text-2xl font-bold font-mono" :class="recentAlertCount > 0 ? 'text-rose-600' : 'text-slate-900'">{{ recentAlertCount }}</span>
+              <span class="text-xs text-slate-400">Hiển thị {{ alertsList.length }} gần nhất</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-sm font-semibold text-slate-800">Tốc độ gói tin theo thời gian (pkt/s)</h2>
+              <span class="text-xs text-slate-400">6 node • cửa sổ 5 giây</span>
+            </div>
+            <div class="h-64 relative">
+              <canvas id="trafficChart"></canvas>
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-sm font-semibold text-slate-800">Lưu lượng từng node (B/s)</h2>
+              <span class="text-xs text-slate-400">Hiện tại</span>
+            </div>
+            <div class="h-64 relative">
+              <canvas id="nodeBarChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6 Nodes Grid -->
+        <div>
+          <div class="flex items-center justify-between mb-2.5">
+            <h2 class="text-sm font-semibold text-slate-800">Điều khiển và trạng thái 6 node ESP32-S3</h2>
+            <button @click="fetchDevices" class="px-2.5 py-1 text-xs bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-600">
+              <i class="fa-solid fa-rotate-right mr-1"></i>Làm mới
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            <div v-for="dev in devicesList" :key="dev.id"
+                 class="bg-white border rounded-xl p-4 transition-colors"
+                 :class="isNodeAnomalous(dev) ? 'border-rose-300 ring-1 ring-rose-100' : 'border-slate-200'">
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full" :class="dev.status === 'online' ? 'bg-emerald-500' : 'bg-slate-300'"></span>
+                  <span class="font-semibold text-sm text-slate-900">{{ dev.display_name }}</span>
+                  <span v-if="dev.ip_address" class="text-[11px] font-mono text-slate-400">{{ dev.ip_address }}</span>
+                </div>
+                <span class="text-[11px] font-medium px-2 py-0.5 rounded-full"
+                      :class="dev.status === 'online' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'">
+                  {{ dev.status === 'online' ? 'Online' : 'Offline' }}
+                </span>
+              </div>
+
+              <!-- Live Node Metrics -->
+              <div class="grid grid-cols-3 gap-2 py-2 my-2 border-y border-slate-100 text-xs">
+                <div>
+                  <div class="text-slate-400 text-[11px]">Kịch bản</div>
+                  <div class="font-mono font-semibold" :class="dev.current_scenario.startsWith('TH0') ? 'text-emerald-700' : 'text-amber-700'">
+                    {{ dev.current_scenario }}
+                  </div>
+                </div>
+                <div>
+                  <div class="text-slate-400 text-[11px]">Tốc độ</div>
+                  <div class="font-mono font-semibold text-slate-800">
+                    {{ latestWindowFor(dev.id)?.packet_rate ?? 0 }} <span class="font-normal text-slate-400">pkt/s</span>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-slate-400 text-[11px]">Cập nhật</div>
+                  <div class="font-mono text-slate-600">{{ dev.last_seen > 0 ? formatTime(dev.last_seen) : '--:--' }}</div>
+                </div>
+              </div>
+
+              <!-- Compact Scenario Buttons -->
+              <div class="grid grid-cols-3 gap-1.5 pt-1">
+                <button v-for="sc in scenarioButtons" :key="sc.code"
+                        @click="sendControl(dev.id, sc.code)"
+                        class="px-2 py-1 text-[11px] font-medium rounded-md border transition-colors"
+                        :class="dev.current_scenario.startsWith(sc.code)
+                          ? sc.activeClass
+                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'">
+                  {{ sc.label }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alerts Table -->
+        <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold text-slate-800">Lịch sử cảnh báo gần đây</h2>
+            <div class="flex flex-wrap items-center gap-3">
+              <button type="button" @click="fetchAlerts" class="text-xs text-slate-500 hover:text-slate-800">
+                <i class="fa-solid fa-arrows-rotate mr-1"></i>Cập nhật
+              </button>
+              <button type="button" @click="openAllAlertsModal"
+                      class="px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-700 hover:bg-blue-100">
+                Xem tất cả sự cố ({{ totalAlertsCount ?? '—' }})
+              </button>
+            </div>
+          </div>
+          <p v-if="recentAlertsError" role="status" class="px-4 py-2 text-xs text-rose-700">{{ recentAlertsError }}</p>
+          <div class="max-h-72 overflow-auto custom-scrollbar">
+            <alert-table :items="alertsList" @detail="openAlertDetail"></alert-table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- TAB 2: LOCAL DATASET (5s WINDOWS & TSHARK CAPTURE)       -->
+      <!-- ======================================================== -->
+      <section v-if="currentTab === 'local_dataset'" class="space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="inline-flex flex-wrap p-1 bg-slate-200/70 rounded-lg">
+            <button @click="localSubTab = 'windows'" :class="localSubClass('windows')">
+              Cửa sổ 5 giây
+            </button>
+            <button @click="localSubTab = 'tshark'" :class="localSubClass('tshark')">
+              Gói tin Tshark và file .pcapng
+            </button>
+            <button @click="localSubTab = 'logs'; fetchWindowLogs()" :class="localSubClass('logs')">
+              Nhật ký trích xuất
+            </button>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <!-- Nút Tạm dừng / Tiếp tục cuộn để thuyết trình -->
+            <button @click="isWindowsPaused = !isWindowsPaused; if (!isWindowsPaused) fetchWindows();"
+                    :class="isWindowsPaused ? 'bg-amber-500 hover:bg-amber-600 text-white font-bold shadow-sm animate-pulse' : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'"
+                    class="px-3 py-1.5 text-xs rounded-lg border inline-flex items-center transition-all"
+                    :title="isWindowsPaused ? 'Bấm để tiếp tục cập nhật dữ liệu tự động' : 'Bấm để đóng băng bảng dữ liệu, thuận tiện thuyết trình không bị trôi'">
+              <i :class="isWindowsPaused ? 'fa-solid fa-play mr-1.5' : 'fa-solid fa-pause mr-1.5 text-amber-500'"></i>
+              {{ isWindowsPaused ? 'Tiếp tục Live (Đang dừng)' : 'Tạm dừng cuộn' }}
+            </button>
+
+            <!-- Bộ lọc theo thiết bị -->
+            <select v-model="windowFilterDevice" @change="fetchWindows()" 
+                    class="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
+              <option value="all">Tất cả 6 node</option>
+              <option value="esp32_01">Node: esp32_01</option>
+              <option value="esp32_02">Node: esp32_02</option>
+              <option value="esp32_03">Node: esp32_03</option>
+              <option value="esp32_04">Node: esp32_04</option>
+              <option value="esp32_05">Node: esp32_05</option>
+              <option value="esp32_06">Node: esp32_06</option>
+            </select>
+
+            <!-- Tùy chọn số lượng dòng -->
+            <select v-model="windowLimit" @change="fetchWindows()" 
+                    class="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
+              <option :value="60">60 dòng (~50s)</option>
+              <option :value="120">120 dòng (~100s)</option>
+              <option :value="300">300 dòng (~250s)</option>
+            </select>
+
+            <a href="/api/windows/export-csv"
+               class="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-xs font-medium rounded-lg text-emerald-700 border border-emerald-200 inline-flex items-center">
+              <i class="fa-solid fa-file-csv mr-1.5"></i>Xuất CSV cửa sổ 5 giây
+            </a>
+            <a v-if="localReport.processed_csv" href="/api/local/dataset/csv"
+               class="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-xs font-medium rounded-lg text-blue-700 border border-blue-200 inline-flex items-center">
+              <i class="fa-solid fa-download mr-1.5"></i>Dataset 14 đặc trưng
+            </a>
+            <button @click="fetchWindows(); fetchPackets(); fetchCaptures(); fetchWindowLogs(); fetchLogFiles()" class="px-3 py-1.5 bg-white hover:bg-slate-50 text-xs font-medium rounded-lg text-slate-700 border border-slate-200">
+              <i class="fa-solid fa-arrows-rotate mr-1"></i>Làm mới
+            </button>
+          </div>
+        </div>
+
+        <!-- 2A: 5s WINDOWS -->
+        <div v-if="localSubTab === 'windows'" class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div class="overflow-x-auto max-h-[540px] custom-scrollbar">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 text-slate-500 border-b border-slate-200 sticky top-0">
+                <tr>
+                  <th class="px-4 py-3 font-medium">Thời điểm</th>
+                  <th class="px-4 py-3 font-medium">Thiết bị</th>
+                  <th class="px-4 py-3 font-medium text-right">Số gói</th>
+                  <th class="px-4 py-3 font-medium text-right">Tổng Bytes</th>
+                  <th class="px-4 py-3 font-medium text-right">TB độ dài</th>
+                  <th class="px-4 py-3 font-medium text-right">Mean IAT</th>
+                  <th class="px-4 py-3 font-medium text-right">Packet Rate</th>
+                  <th class="px-4 py-3 font-medium text-right">Byte Rate</th>
+                  <th class="px-4 py-3 font-medium text-center">SYN / FIN / RST</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 font-mono">
+                <tr v-for="w in windowsList" :key="w.id" 
+                    :class="isAnomalyWindow(w) ? 'bg-rose-50/70 hover:bg-rose-100/80 transition-colors' : 'hover:bg-slate-50 transition-colors'">
+                  <td class="px-4 py-2.5 text-slate-500 whitespace-nowrap">{{ formatTime(w.created_at) }}</td>
+                  <td class="px-4 py-2.5 font-semibold text-blue-600 whitespace-nowrap">
+                    {{ w.device_key }}
+                    <span v-if="getScenarioBadge(w)" 
+                          class="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold border tracking-wider"
+                          :class="getScenarioBadge(w).cls">
+                      {{ getScenarioBadge(w).label }}
+                    </span>
+                  </td>
+                  <td class="px-4 py-2.5 text-right" :class="(w.features?.packet_count || 0) > 10 ? 'text-rose-600 font-bold' : 'text-slate-700'">
+                    {{ w.features?.packet_count || 0 }}
+                  </td>
+                  <td class="px-4 py-2.5 text-right" :class="(w.features?.total_bytes || w.features?.byte_count || 0) > 2000 ? 'text-amber-600 font-bold' : 'text-slate-700'">
+                    {{ w.features?.total_bytes ?? w.features?.byte_count ?? 0 }} B
+                  </td>
+                  <td class="px-4 py-2.5 text-right text-slate-600">{{ w.features?.mean_packet_len ?? w.features?.len_mean ?? 0 }} B</td>
+                  <td class="px-4 py-2.5 text-right text-slate-600">{{ w.features?.iat_mean !== undefined ? w.features.iat_mean + ' ms' : (w.features?.mean_iat || 0) + ' s' }}</td>
+                  <td class="px-4 py-2.5 text-right font-medium" :class="(w.features?.packet_rate || 0) > 5 ? 'text-rose-600 font-bold' : 'text-slate-800'">{{ w.features?.packet_rate || 0 }} /s</td>
+                  <td class="px-4 py-2.5 text-right text-slate-600">{{ w.features?.byte_rate || 0 }} B/s</td>
+                  <td class="px-4 py-2.5 text-center text-slate-600">
+                    {{ w.features?.tcp_syn_count ?? 0 }} / {{ w.features?.tcp_fin_count ?? 0 }} /
+                    <span :class="(w.features?.tcp_rst_count || 0) > 0 ? 'text-rose-600 font-bold' : ''">{{ w.features?.tcp_rst_count ?? 0 }}</span>
+                  </td>
+                </tr>
+                <tr v-if="windowsList.length === 0">
+                  <td colspan="9" class="p-8 text-center text-slate-400 font-sans">Chưa có dữ liệu cửa sổ.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 2B: TSHARK & PCAPNG FILES -->
+        <div v-if="localSubTab === 'tshark'" class="space-y-4">
+          <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2.5">
+              <div class="text-xs font-semibold text-slate-800">File capture Wireshark .pcapng trên wlan0</div>
+              <span class="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                Đang ghi tự động (tối đa 5 file × 512 KB)
+              </span>
+            </div>
+            <div v-if="capturesList.length > 0" class="flex flex-wrap gap-2">
+              <a v-for="c in capturesList" :key="c.filename"
+                 :href="'/api/captures/download/' + encodeURIComponent(c.filename)"
+                 class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-xs text-slate-700">
+                <i class="fa-solid fa-download text-blue-600"></i>
+                <span class="font-mono font-medium">{{ c.filename }}</span>
+                <span class="text-slate-400">({{ (c.size_bytes / 1024).toFixed(1) }} KB)</span>
+              </a>
+            </div>
+            <div v-else class="text-xs text-slate-400">Chưa có file .pcapng nào trong data/local_captures.</div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div class="overflow-x-auto max-h-[440px] custom-scrollbar">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-500 border-b border-slate-200 sticky top-0">
+                  <tr>
+                    <th class="px-4 py-2.5 font-medium">Thời gian</th>
+                    <th class="px-4 py-2.5 font-medium">Thiết bị</th>
+                    <th class="px-4 py-2.5 font-medium">IP nguồn → Đích</th>
+                    <th class="px-4 py-2.5 font-medium">Loại gói</th>
+                    <th class="px-4 py-2.5 font-medium text-right">Frame</th>
+                    <th class="px-4 py-2.5 font-medium">TCP Flags</th>
+                    <th class="px-4 py-2.5 font-medium">Chi tiết</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 font-mono">
+                  <tr v-for="p in packetsList" :key="p.id" class="hover:bg-slate-50">
+                    <td class="px-4 py-2 text-slate-500 whitespace-nowrap">{{ formatTime(p.ts) }}</td>
+                    <td class="px-4 py-2 font-semibold text-blue-600 whitespace-nowrap">{{ p.device_key }}</td>
+                    <td class="px-4 py-2 text-slate-700 whitespace-nowrap">{{ p.src_ip }} → {{ p.dst_ip }}</td>
+                    <td class="px-4 py-2 whitespace-nowrap">
+                      <span class="px-2 py-0.5 rounded text-[11px] font-sans font-medium"
+                            :class="p.mqtt_type === 'CONNECT' || p.mqtt_type === 'CONNACK' ? 'bg-purple-50 text-purple-700 border border-purple-200' : (p.mqtt_type === 'TCP' ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700 border border-blue-200')">
+                        {{ p.mqtt_type }}
+                      </span>
+                    </td>
+                    <td class="px-4 py-2 text-right text-slate-700 whitespace-nowrap">{{ p.frame_len }} B</td>
+                    <td class="px-4 py-2 text-slate-500 whitespace-nowrap">{{ p.tcp_flags || '-' }}</td>
+                    <td class="px-4 py-2 text-slate-600 truncate max-w-xs" :title="p.info">{{ p.info }}</td>
+                  </tr>
+                  <tr v-if="packetsList.length === 0">
+                    <td colspan="7" class="p-8 text-center text-slate-400 font-sans">Đang chờ gói tin từ tshark trên wlan0...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2C: NHẬT KÝ TRÍCH XUẤT, LÀM SẠCH & HUẤN LUYỆN (LOGS) -->
+        <div v-if="localSubTab === 'logs'" class="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-semibold text-slate-800">Nhật ký trích xuất, làm sạch và huấn luyện</h3>
+              <p class="text-xs text-slate-400">Nhật ký quy trình trích xuất đặc trưng 5 giây, làm sạch dữ liệu và huấn luyện mô hình.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <a v-for="lf in logFiles" :key="lf.filename"
+                 :href="'/api/logs/files/' + encodeURIComponent(lf.filename)"
+                 target="_blank"
+                 class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-[11px] font-mono text-slate-700">
+                <i class="fa-solid fa-file-lines text-blue-600"></i>{{ lf.filename }}
+              </a>
+              <span class="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-mono text-xs">
+                Cửa sổ trong DB: {{ totalWindowsDb.toLocaleString() }}
+              </span>
+            </div>
+          </div>
+
+          <div class="inline-flex flex-wrap p-1 bg-slate-100 rounded-lg gap-1">
+            <button @click="logSource = 'runtime'" :class="logSource === 'runtime' ? 'bg-white text-slate-900 shadow-sm px-3 py-1 rounded-md text-xs font-medium' : 'text-slate-600 hover:text-slate-900 px-3 py-1 rounded-md text-xs font-medium'">
+              Cửa sổ 5 giây
+            </button>
+            <button @click="logSource = 'extract'" :class="logSource === 'extract' ? 'bg-white text-slate-900 shadow-sm px-3 py-1 rounded-md text-xs font-medium' : 'text-slate-600 hover:text-slate-900 px-3 py-1 rounded-md text-xs font-medium'">
+              Trích xuất 14 đặc trưng
+            </button>
+            <button @click="logSource = 'train_local'" :class="logSource === 'train_local' ? 'bg-white text-slate-900 shadow-sm px-3 py-1 rounded-md text-xs font-medium' : 'text-slate-600 hover:text-slate-900 px-3 py-1 rounded-md text-xs font-medium'">
+              Huấn luyện Local ESP32
+            </button>
+            <button @click="logSource = 'train_ciciot'" :class="logSource === 'train_ciciot' ? 'bg-white text-slate-900 shadow-sm px-3 py-1 rounded-md text-xs font-medium' : 'text-slate-600 hover:text-slate-900 px-3 py-1 rounded-md text-xs font-medium'">
+              Huấn luyện CICIoT2023
+            </button>
+          </div>
+
+          <div v-if="logSource === 'runtime'" class="bg-slate-900 text-slate-100 rounded-xl p-4 font-mono text-[11px] leading-relaxed overflow-x-auto max-h-[520px] custom-scrollbar space-y-3">
+            <div v-if="windowLogs.length === 0" class="text-slate-400 py-6 text-center font-sans">
+              Chưa có nhật ký trích xuất live mới. Khi Raspberry Pi 5 và ESP32 hoạt động, từng chu kỳ cửa sổ 5 giây sẽ xuất hiện tại đây.
+            </div>
+            <div v-for="item in windowLogs" :key="item.id" class="border-b border-slate-800 pb-2.5 last:border-b-0">
+              <pre class="whitespace-pre-wrap" :class="item.level === 'WARNING' ? 'text-amber-300' : 'text-emerald-300'">{{ item.message }}</pre>
+            </div>
+          </div>
+
+          <pre v-else-if="logSource === 'extract'" class="bg-slate-900 text-sky-300 font-mono text-[11px] leading-relaxed p-4 rounded-xl overflow-x-auto max-h-[520px] custom-scrollbar whitespace-pre">{{ localExtractRep?.extract_log || 'Chưa có log extract_features.py.' }}</pre>
+          <pre v-else-if="logSource === 'train_local'" class="bg-slate-900 text-emerald-300 font-mono text-[11px] leading-relaxed p-4 rounded-xl overflow-x-auto max-h-[520px] custom-scrollbar whitespace-pre">{{ localTrainRep?.training_log || 'Chưa có log train_local.py.' }}</pre>
+          <pre v-else class="bg-slate-900 text-emerald-300 font-mono text-[11px] leading-relaxed p-4 rounded-xl overflow-x-auto max-h-[520px] custom-scrollbar whitespace-pre">{{ ciciotInfo?.training_log || 'Chưa có log train_ciciot.py.' }}</pre>
+        </div>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- TAB 3: DEMO & MÔ PHỎNG                                   -->
+      <!-- ======================================================== -->
+      <section v-if="currentTab === 'demo_lab'" class="space-y-4">
+        <div class="inline-flex p-1 bg-slate-200/70 rounded-lg">
+          <button @click="demoSubTab = 'replay'" :class="subTabClass('replay')">
+            Kiểm thử CICIoT2023
+          </button>
+          <button @click="demoSubTab = 'simulator'" :class="subTabClass('simulator')">
+            Mô phỏng 7 kịch bản
+          </button>
+        </div>
+
+        <!-- 3A: REPLAY -->
+        <div v-if="demoSubTab === 'replay'" class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div class="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+            <h3 class="text-sm font-semibold text-slate-900">Chọn mẫu kiểm thử</h3>
+
+            <div>
+              <label class="text-xs font-medium text-slate-600 block mb-1.5">Loại lưu lượng / tấn công</label>
+              <select v-model="selectedAttack" class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500">
+                <option v-for="lbl in availableLabels" :key="lbl" :value="lbl">{{ lbl }}</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="text-xs font-medium text-slate-600 block mb-1.5">Mô hình suy luận</label>
+              <div class="space-y-2 text-xs">
+                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer"
+                       :class="selectedModel === 'rf_binary' ? 'border-blue-500 bg-blue-50/50 text-blue-900' : 'border-slate-200 hover:bg-slate-50'">
+                  <input type="radio" value="rf_binary" v-model="selectedModel" class="accent-blue-600">
+                  <span class="font-medium">Random Forest nhị phân</span>
+                </label>
+                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer"
+                       :class="selectedModel === 'rf_multiclass' ? 'border-blue-500 bg-blue-50/50 text-blue-900' : 'border-slate-200 hover:bg-slate-50'">
+                  <input type="radio" value="rf_multiclass" v-model="selectedModel" class="accent-blue-600">
+                  <span class="font-medium">Random Forest 34 lớp</span>
+                </label>
+                <label class="flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer"
+                       :class="selectedModel === 'iso_forest' ? 'border-blue-500 bg-blue-50/50 text-blue-900' : 'border-slate-200 hover:bg-slate-50'">
+                  <input type="radio" value="iso_forest" v-model="selectedModel" class="accent-blue-600">
+                  <span class="font-medium">Isolation Forest</span>
+                </label>
+              </div>
+            </div>
+
+            <button @click="runReplay" :disabled="replayLoading"
+                    class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors">
+              <i class="fa-solid fa-play mr-1.5" :class="{'fa-spin': replayLoading}"></i>
+              {{ replayLoading ? 'Đang chạy...' : 'Chạy kiểm thử' }}
+            </button>
+          </div>
+
+          <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5 flex flex-col justify-between">
+            <div v-if="replayResult" class="space-y-4">
+              <div class="flex items-center justify-between">
+                <span class="px-3 py-1 rounded-full text-xs font-semibold"
+                      :class="replayResult.is_correct ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'">
+                  <i class="fa-solid mr-1" :class="replayResult.is_correct ? 'fa-check' : 'fa-xmark'"></i>
+                  {{ replayResult.is_correct ? 'Dự đoán chính xác' : 'Dự đoán sai' }}
+                </span>
+                <span class="text-xs font-mono text-slate-500">Độ trễ: {{ replayResult.inference_ms }} ms</span>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                  <div class="text-xs text-slate-500 mb-1">Nhãn thực tế</div>
+                  <div class="text-base font-bold font-mono text-slate-900 break-all">{{ replayResult.ground_truth }}</div>
+                </div>
+                <div class="p-4 rounded-xl border"
+                     :class="replayResult.is_correct ? 'bg-emerald-50/60 border-emerald-200' : 'bg-rose-50/60 border-rose-200'">
+                  <div class="text-xs text-slate-500 mb-1">Kết quả dự đoán</div>
+                  <div class="text-base font-bold font-mono break-all"
+                       :class="replayResult.is_correct ? 'text-emerald-700' : 'text-rose-700'">
+                    {{ replayResult.prediction }}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div class="text-xs font-medium text-slate-500 mb-2">Một số đặc trưng đầu vào của mẫu</div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div v-for="(val, key) in replayResult.features_sample" :key="key"
+                       class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                    <div class="text-[11px] text-slate-400 truncate" :title="key">{{ key }}</div>
+                    <div class="font-mono text-xs font-semibold text-slate-800 mt-0.5">{{ val }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="h-60 flex flex-col items-center justify-center text-slate-400 text-xs">
+              <i class="fa-solid fa-play-circle text-3xl mb-2 text-slate-300"></i>
+              <p>Chọn loại lưu lượng và nhấn "Chạy kiểm thử"</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3B: SIMULATOR -->
+        <div v-if="demoSubTab === 'simulator'" class="space-y-4">
+          <div class="bg-white border border-slate-200 rounded-xl p-5">
+            <div class="flex flex-wrap items-end gap-3 mb-4 pb-4 border-b border-slate-100 text-xs">
+              <label class="flex flex-col gap-1 font-medium text-slate-600">
+                Thiết bị mục tiêu
+                <select v-model="observationTarget" :disabled="observation.active" class="rounded-lg border border-slate-300 bg-white px-3 py-2">
+                  <option v-for="node in deviceOptions" :key="node" :value="node">{{ node }}{{ node === deviceOptions[0] ? ' (Mặc định)' : '' }}</option>
+                  <option value="all">Tất cả 6 node</option>
+                </select>
+              </label>
+              <button type="button" @click="startObservation" :disabled="observation.active"
+                      class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+                <i class="fa-solid fa-satellite-dish mr-1"></i>Quan sát lưu lượng 5 giây
+              </button>
+            </div>
+            <h3 class="text-sm font-semibold text-slate-900 mb-3">Chọn kịch bản mô phỏng / phát lại</h3>
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+              <button v-for="item in simScenarios" :key="item.code"
+                      @click="triggerSim(item.code)"
+                      class="p-3 rounded-xl border text-left transition-colors"
+                      :class="simResult?.scenario === item.code ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:bg-slate-50'">
+                <div class="font-bold text-xs" :class="item.color">{{ item.code }}</div>
+                <div class="text-xs font-medium text-slate-700 mt-0.5">{{ item.name }}</div>
+                <div class="text-[11px] text-slate-400 mt-1">{{ item.hint }}</div>
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-slate-950 text-emerald-400 font-mono text-xs rounded-xl border border-slate-800 shadow-inner overflow-hidden">
+            <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-900 px-4 py-2.5 border-b border-slate-800">
+              <span class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full" :class="observation.active ? 'animate-pulse bg-emerald-400' : 'bg-slate-600'"></span>
+                Gói tin Tshark trên gateway
+              </span>
+              <span class="text-slate-300">{{ observation.target === 'all' ? 'Tất cả 6 node' : observation.target }} · {{ observation.count }} gói · {{ observation.seconds.toFixed(1) }}s</span>
+            </div>
+            <div ref="observationConsole" class="h-56 overflow-auto custom-scrollbar p-4">
+              <p v-if="observation.error" role="status" class="text-rose-300">{{ observation.error }}</p>
+              <p v-else-if="!observation.packets.length" class="text-slate-400">
+                {{ observation.active ? 'Đang chờ gói tin từ Tshark…' : (observation.results.length ? 'Không ghi nhận gói tin trong cửa sổ này.' : 'Chọn thiết bị và nhấn Quan sát lưu lượng 5 giây.') }}
+              </p>
+              <p v-if="observation.count > observation.packets.length" class="text-slate-400 mb-2">
+                Hiển thị {{ observation.packets.length }} gói gần nhất của cửa sổ.
+              </p>
+              <div v-for="packet in observation.packets" :key="packet.id" class="py-0.5 whitespace-nowrap">
+                <span class="text-slate-400">{{ formatPacketTimestamp(packet.ts) }}</span>
+                {{ packet.device_key }} {{ packet.src_ip || '—' }} → {{ packet.dst_ip || '—' }} · {{ packet.frame_len }} B ·
+                {{ packet.mqtt_type || 'TCP' }} · {{ packet.info || '—' }}
+              </div>
+              <p v-if="observation.active && !observation.seconds" class="text-slate-400 mt-2">Đang chờ Tshark ghi lô cuối…</p>
+            </div>
+          </div>
+
+          <section v-for="item in observation.results" :key="item.device_key" class="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+            <h3 class="text-sm font-semibold text-slate-800">Kết quả quan sát · <span class="font-mono">{{ item.device_key }}</span></h3>
+            <p v-if="item.status !== 'complete'" class="text-xs text-slate-500">
+              {{ item.status === 'truncated' ? 'Cửa sổ vượt giới hạn gói tin. Không có kết quả suy luận.' : 'Không thu được gói tin cho thiết bị trong cửa sổ. Kiểm tra trạng thái node và Tshark trên Pi.' }}
+            </p>
+            <template v-else>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div v-for="model in observationModels" :key="model.key" class="p-3 rounded-xl border bg-slate-50 border-slate-200">
+                  <h4 class="text-[11px] font-semibold text-slate-500">{{ model.label }}</h4>
+                  <p class="font-semibold text-sm mt-1 break-words"
+                     :class="item.models[model.key].prediction === 'anomaly' ? 'text-rose-700' : 'text-slate-800'">
+                    {{ observationModelLabel(item.models[model.key]) }}
+                  </p>
+                  <p v-if="item.models[model.key].score != null" class="font-mono text-xs mt-1">
+                    Score: {{ item.models[model.key].score.toFixed(4) }}
+                  </p>
+                </div>
+              </div>
+              <h4 class="text-xs font-medium text-slate-600">14 đặc trưng đo trong cửa sổ 5 giây</h4>
+              <dl class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div v-for="key in networkFeatures" :key="key" class="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                  <dt class="text-[11px] text-slate-500 truncate" :title="key">{{ key }}</dt>
+                  <dd class="font-mono text-xs font-semibold text-slate-800">{{ item.features[key] }}</dd>
+                </div>
+              </dl>
+            </template>
+          </section>
+
+          <div v-if="simResult" class="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span class="font-semibold text-slate-700">Kết quả mô phỏng / phát lại ({{ simResult.schema_version || 'v1' }})</span>
+              <span class="px-2.5 py-0.5 rounded-full border font-medium"
+                    :class="simResult.mode === 'local_test_holdout' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600 border-slate-200'">
+                {{ simResult.mode === 'local_test_holdout' ? 'Dữ liệu Hold-out Test thật từ ESP32' : 'Vector mô phỏng phần mềm' }}
+              </span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <!-- Cột 1: Kịch bản mục tiêu -->
+              <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                <div class="text-[11px] font-medium text-slate-500 tracking-wider">Kịch bản kiểm thử chuẩn</div>
+                <div class="text-base font-bold text-slate-900 mt-1">{{ simResult.scenario }}</div>
+                <div class="text-xs text-slate-500 font-mono mt-0.5">Nhãn chuẩn: {{ simResult.ground_truth }}</div>
+              </div>
+
+              <!-- Cột 2: Mô hình 1 - Isolation Forest -->
+              <div class="p-3.5 rounded-xl border"
+                   :class="(simResult.iso_forest_pred || simResult.model_prediction) === 'anomaly' ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'">
+                <div class="text-[11px] font-medium text-slate-500 tracking-wider">1. Isolation Forest</div>
+                <div class="text-base font-bold mt-1"
+                     :class="(simResult.iso_forest_pred || simResult.model_prediction) === 'anomaly' ? 'text-rose-700' : 'text-emerald-700'">
+                  {{ (simResult.iso_forest_pred || simResult.model_prediction) === 'anomaly' ? 'Bất thường' : 'Bình thường' }}
+                </div>
+                <div class="text-[11px] font-mono mt-0.5 text-slate-600">
+                  Học không giám sát (Score: {{ simResult.anomaly_score }})
+                </div>
+              </div>
+
+              <!-- Cột 3: Mô hình 2 - Random Forest Binary -->
+              <div class="p-3.5 rounded-xl border"
+                   :class="(simResult.rf_binary_pred || simResult.model_prediction) === 'anomaly' ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'">
+                <div class="text-[11px] font-medium text-slate-500 tracking-wider">2. Random Forest nhị phân</div>
+                <div class="text-base font-bold mt-1"
+                     :class="(simResult.rf_binary_pred || simResult.model_prediction) === 'anomaly' ? 'text-rose-700' : 'text-emerald-700'">
+                  {{ (simResult.rf_binary_pred || simResult.model_prediction) === 'anomaly' ? 'Bất thường' : 'Bình thường' }}
+                </div>
+                <div class="text-[11px] font-mono mt-0.5 text-slate-600">
+                  Học có giám sát (F1: 98.28%)
+                </div>
+              </div>
+
+              <!-- Cột 4: Mô hình 3 - Random Forest Scenario -->
+              <div class="p-3.5 rounded-xl border"
+                   :class="simResult.scenario_prediction === simResult.ground_truth ? 'bg-blue-50 border-blue-200' : 'bg-amber-50 border-amber-200'">
+                <div class="text-[11px] font-medium text-slate-500 tracking-wider">3. Random Forest 7 kịch bản</div>
+                <div class="text-base font-bold mt-1 font-mono text-blue-700">
+                  {{ simResult.scenario_prediction || '--' }}
+                </div>
+                <div class="text-[11px] mt-0.5 font-medium"
+                     :class="simResult.scenario_prediction === simResult.ground_truth ? 'text-emerald-600' : 'text-amber-600'">
+                  {{ simResult.scenario_prediction === simResult.ground_truth ? '✓ Khớp kịch bản (F1: 98.18%)' : '≠ Khác nhãn chuẩn' }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Thanh Anomaly Score -->
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div class="flex items-center justify-between text-xs mb-1.5">
+                <span class="text-slate-600 font-medium">Thanh đo Isolation Forest Anomaly Score</span>
+                <span class="font-mono font-bold" :class="simResult.anomaly_score < 0 ? 'text-rose-600' : 'text-emerald-600'">
+                  {{ simResult.anomaly_score }}
+                </span>
+              </div>
+              <div class="relative h-2 bg-slate-200 rounded-full overflow-hidden">
+                <div class="absolute left-1/2 top-0 bottom-0 w-0.5 bg-slate-500 z-10"></div>
+                <div class="h-full transition-all"
+                     :class="simResult.anomaly_score < 0 ? 'bg-rose-500' : 'bg-emerald-500'"
+                     :style="scoreBarStyle(simResult.anomaly_score)"></div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
+              <div v-for="(val, key) in simResult.features" :key="key" class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                <div class="text-[11px] text-slate-400 truncate" :title="key">{{ key }}</div>
+                <div class="font-mono font-semibold text-slate-800 mt-0.5">{{ val }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- TAB 4: MÔ HÌNH & HUẤN LUYỆN (CICIOT2023 & LOCAL ESP32)  -->
+      <!-- ======================================================== -->
+      <section v-if="currentTab === 'ciciot'" class="space-y-5">
+        <!-- Sub-pills tách riêng 2 bộ dữ liệu / bài toán -->
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="inline-flex p-1 bg-slate-200/70 rounded-lg">
+            <button @click="modelSubTab = 'ciciot'" :class="modelSubClass('ciciot')">
+              CICIoT2023
+            </button>
+            <button @click="modelSubTab = 'local'; fetchLocalReport()" :class="modelSubClass('local')">
+              Local ESP32
+            </button>
+          </div>
+          <button @click="fetchCICIoTInfo(); fetchLocalReport()" class="px-3 py-1.5 bg-white hover:bg-slate-50 text-xs font-medium rounded-lg text-slate-700 border border-slate-200">
+            <i class="fa-solid fa-arrows-rotate mr-1"></i>Làm mới báo cáo
+          </button>
+        </div>
+
+        <!-- ====================================== -->
+        <!-- 4A: CICIoT2023                         -->
+        <!-- ====================================== -->
+        <div v-if="modelSubTab === 'ciciot'" class="space-y-5">
+          <!-- 4 KPI Cards (rạch ròi bài toán 2 lớp & 34 lớp) -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-white border border-slate-200 rounded-xl p-4">
+              <div class="text-xs text-slate-500">Dữ liệu sạch sau dedup</div>
+              <div class="text-2xl font-bold text-slate-900 mt-1">{{ (ciciotInfo.clean_samples || ciciotInfo.total_samples || 16350).toLocaleString() }}</div>
+              <div class="text-xs text-slate-400 mt-0.5">{{ ciciotInfo.train_samples || 11445 }} train / {{ ciciotInfo.val_samples || 2452 }} val / {{ ciciotInfo.test_samples || 2453 }} test</div>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-4">
+              <div class="text-xs text-slate-500">Đặc trưng &amp; Chống rò rỉ</div>
+              <div class="text-2xl font-bold text-slate-900 mt-1">{{ ciciotInfo.feature_count || 45 }} cột</div>
+              <div class="text-xs text-emerald-600 font-medium mt-0.5">Trùng Train–Test: {{ cicPrep?.train_test_overlap ?? 0 }} mẫu</div>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-4">
+              <div class="text-xs text-slate-500">Nhóm 1: Phát hiện bất thường nhị phân</div>
+              <div class="text-2xl font-bold text-emerald-600 mt-1">{{ pct(binMetrics?.f1_score, '97.72%') }}</div>
+              <div class="text-xs text-slate-400 mt-0.5">Acc {{ pct(binMetrics?.accuracy, '95.84%') }} | {{ binMetrics?.inference_latency_ms ?? 0.0106 }} ms</div>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-4">
+              <div class="text-xs text-slate-500">Nhóm 2: Phân loại 34 lớp tấn công</div>
+              <div class="text-2xl font-bold text-blue-600 mt-1">{{ pct(multiMetrics?.accuracy, '22.83%') }}</div>
+              <div class="text-xs text-slate-400 mt-0.5">Macro F1 {{ pct(multiMetrics?.macro_f1, '16.81%') }} (đánh giá riêng)</div>
+            </div>
+          </div>
+
+          <!-- Khối 1: Quy trình Tiền xử lý & Chống Data Leakage -->
+          <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h2 class="text-sm font-semibold text-slate-800">Bước 1: Quy trình làm sạch, chia tập và chống rò rỉ dữ liệu</h2>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+              <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                <div class="text-[11px] text-slate-500">Bản ghi thô</div>
+                <div class="font-mono font-bold text-slate-800 mt-0.5">{{ (cicPrep?.raw_rows ?? ciciotInfo.total_samples ?? 16350).toLocaleString() }}</div>
+              </div>
+              <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                <div class="text-[11px] text-slate-500">Xử lý NaN / ±Inf</div>
+                <div class="font-mono font-bold text-slate-800 mt-0.5">{{ cicPrep?.nan_inf_fixed ?? 0 }}</div>
+              </div>
+              <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                <div class="text-[11px] text-slate-500">Trùng lặp đã xóa</div>
+                <div class="font-mono font-bold text-slate-800 mt-0.5">{{ cicPrep?.duplicates_removed ?? 0 }} dòng</div>
+              </div>
+              <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                <div class="text-[11px] text-slate-500">Overlap Train–Test</div>
+                <div class="font-mono font-bold text-emerald-600 mt-0.5">{{ cicPrep?.train_test_overlap ?? 0 }} mẫu</div>
+              </div>
+              <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200 col-span-2">
+                <div class="text-[11px] text-slate-500">Cắt ngoại lệ QuantileClipper</div>
+                <div class="font-mono font-semibold text-slate-800 mt-0.5">
+                  Train {{ cicPrep?.clipped_cells?.train ?? 0 }} / Val {{ cicPrep?.clipped_cells?.val ?? 0 }} / Test {{ cicPrep?.clipped_cells?.test ?? 0 }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Khối 2: Bài toán 1 — Phát hiện bất thường Benign vs Attack -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-4">
+              <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-slate-800">Nhóm 1: Đối chuẩn phát hiện bất thường</h2>
+                <span class="text-[11px] text-slate-400">So sánh trên cùng tập kiểm thử</span>
+              </div>
+              <div class="h-60 relative">
+                <canvas id="ciciotCompareChart"></canvas>
+              </div>
+            </div>
+
+            <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between">
+              <div>
+                <h2 class="text-sm font-semibold text-slate-800 mb-1">Ma trận nhầm lẫn — RF Binary</h2>
+                <p class="text-xs text-slate-400 mb-3">Trên 15% tập Test ({{ ciciotInfo.test_samples || 2453 }} mẫu)</p>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-center my-auto" v-if="binMetrics?.confusion_matrix">
+                <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                  <div class="text-[11px] text-emerald-700 font-medium">True Benign</div>
+                  <div class="text-xl font-bold font-mono text-emerald-800">{{ binMetrics.confusion_matrix[0][0] }}</div>
+                </div>
+                <div class="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                  <div class="text-[11px] text-amber-700 font-medium">False Alarm</div>
+                  <div class="text-xl font-bold font-mono text-amber-800">{{ binMetrics.confusion_matrix[0][1] }}</div>
+                </div>
+                <div class="p-3 rounded-lg bg-rose-50 border border-rose-200">
+                  <div class="text-[11px] text-rose-700 font-medium">Missed Attack</div>
+                  <div class="text-xl font-bold font-mono text-rose-800">{{ binMetrics.confusion_matrix[1][0] }}</div>
+                </div>
+                <div class="p-3 rounded-lg bg-blue-50 border border-blue-200">
+                  <div class="text-[11px] text-blue-700 font-medium">True Attack</div>
+                  <div class="text-xl font-bold font-mono text-blue-800">{{ binMetrics.confusion_matrix[1][1] }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bảng đối chuẩn Nhóm 1 (Binary) -->
+          <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <h3 class="text-xs font-semibold text-slate-700">Bảng tổng kết Nhóm 1: Phát hiện bất thường</h3>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
+                  <tr>
+                    <th class="px-4 py-2.5 font-medium">Mô hình &amp; Vai trò</th>
+                    <th class="px-4 py-2.5 font-medium text-right">Accuracy</th>
+                    <th class="px-4 py-2.5 font-medium text-right">Precision</th>
+                    <th class="px-4 py-2.5 font-medium text-right">Recall</th>
+                    <th class="px-4 py-2.5 font-medium text-right">F1-Score</th>
+                    <th class="px-4 py-2.5 font-medium text-right">Tỷ lệ báo sai FPR</th>
+                    <th class="px-4 py-2.5 font-medium text-right">Latency</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  <tr>
+                    <td class="px-4 py-2.5 font-medium text-slate-700">Decision Tree Baseline</td>
+                    <td class="px-4 py-2.5 text-right font-mono">{{ pct(dtBinMetrics?.accuracy, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono">{{ pct(dtBinMetrics?.precision, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono">{{ pct(dtBinMetrics?.recall, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono font-semibold">{{ pct(dtBinMetrics?.f1_score, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono">{{ pct(dtBinMetrics?.false_positive_rate, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono text-slate-500">{{ dtBinMetrics?.inference_latency_ms ?? '--' }} ms</td>
+                  </tr>
+                  <tr>
+                    <td class="px-4 py-2.5 font-semibold text-amber-700">Isolation Forest <span class="text-[11px] font-normal text-slate-500">Học không giám sát</span></td>
+                    <td class="px-4 py-2.5 text-right font-mono">{{ pct(isoMetrics?.accuracy, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono">{{ pct(isoMetrics?.precision, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono">{{ pct(isoMetrics?.recall, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono font-semibold text-amber-700">{{ pct(isoMetrics?.f1_score, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono text-emerald-700">{{ pct(isoMetrics?.false_positive_rate, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono text-slate-500">{{ isoMetrics?.inference_latency_ms ?? '--' }} ms</td>
+                  </tr>
+                  <tr class="bg-blue-50/30">
+                    <td class="px-4 py-2.5 font-semibold text-blue-700">Random Forest Binary <span class="text-[11px] font-normal text-slate-500">Học có giám sát</span></td>
+                    <td class="px-4 py-2.5 text-right font-mono font-semibold">{{ pct(binMetrics?.accuracy, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono">{{ pct(binMetrics?.precision, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono">{{ pct(binMetrics?.recall, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono font-bold text-blue-700">{{ pct(binMetrics?.f1_score, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono">{{ pct(binMetrics?.false_positive_rate, '--') }}</td>
+                    <td class="px-4 py-2.5 text-right font-mono text-slate-500">{{ binMetrics?.inference_latency_ms ?? '--' }} ms</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Khối 3: Nhóm 2 — Phân loại sâu 34 lớp (Độc lập, không gộp chung với Binary) -->
+          <div class="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h3 class="text-sm font-semibold text-slate-800">Nhóm 2: Phân loại sâu 34 lớp tấn công</h3>
+              <span class="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">Đánh giá độc lập do mục tiêu khác bài toán nhị phân</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div class="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                <div class="font-semibold text-slate-700">Decision Tree Baseline 34 lớp</div>
+                <div class="mt-1.5 font-mono text-slate-600">
+                  Accuracy: <b>{{ pct(dtMultiMetrics?.accuracy, '--') }}</b> &nbsp;|&nbsp;
+                  Macro F1: <b>{{ pct(dtMultiMetrics?.macro_f1, '--') }}</b> &nbsp;|&nbsp;
+                  Latency: {{ dtMultiMetrics?.inference_latency_ms ?? '--' }} ms
+                </div>
+              </div>
+              <div class="p-3 rounded-lg border border-blue-200 bg-blue-50/40">
+                <div class="font-semibold text-blue-800">Random Forest 34 lớp</div>
+                <div class="mt-1.5 font-mono text-blue-900">
+                  Accuracy: <b>{{ pct(multiMetrics?.accuracy, '--') }}</b> &nbsp;|&nbsp;
+                  Macro F1: <b>{{ pct(multiMetrics?.macro_f1, '--') }}</b> &nbsp;|&nbsp;
+                  Latency: {{ multiMetrics?.inference_latency_ms ?? '--' }} ms
+                </div>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1.5 pt-1">
+              <span v-for="lbl in availableLabels" :key="lbl"
+                    class="px-2 py-0.5 rounded-md text-[11px] font-mono border"
+                    :class="lbl === 'BenignTraffic' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-700 border-slate-200'">
+                {{ lbl }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Khối 4: Nhật ký Terminal huấn luyện CICIoT2023 -->
+          <div v-if="ciciotInfo.training_log" class="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+            <h3 class="text-sm font-semibold text-slate-800">Nhật ký huấn luyện và kiểm định</h3>
+            <pre class="bg-slate-900 text-emerald-300 font-mono text-[11px] leading-relaxed p-4 rounded-xl overflow-x-auto max-h-96 custom-scrollbar whitespace-pre">{{ ciciotInfo.training_log }}</pre>
+          </div>
+        </div>
+
+        <!-- ====================================== -->
+        <!-- 4B: LOCAL ESP32 (14 ĐẶC TRƯNG CỬA SỔ) -->
+        <!-- ====================================== -->
+        <div v-if="modelSubTab === 'local'" class="space-y-5">
+          <!-- Trường hợp đã chạy thu thập + extract + train trên dữ liệu thực ESP32 -->
+          <template v-if="localTrainRep">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div class="bg-white border border-slate-200 rounded-xl p-4">
+                <div class="text-xs text-slate-500">Tổng cửa sổ sạch</div>
+                <div class="text-2xl font-bold text-slate-900 mt-1">{{ localTrainRep.preprocessing?.clean_rows ?? '--' }}</div>
+                <div class="text-xs text-slate-400 mt-0.5">{{ localTrainRep.train_samples }} train / {{ localTrainRep.val_samples }} val / {{ localTrainRep.test_samples }} test</div>
+              </div>
+              <div class="bg-white border border-slate-200 rounded-xl p-4">
+                <div class="text-xs text-slate-500">Vector đặc trưng</div>
+                <div class="text-2xl font-bold text-slate-900 mt-1">{{ localTrainRep.feature_count || 14 }} cột</div>
+                <div class="text-xs text-emerald-600 mt-0.5">Overlap non-empty: {{ localTrainRep.preprocessing?.train_test_overlap_non_empty ?? 0 }}</div>
+              </div>
+              <div class="bg-white border border-slate-200 rounded-xl p-4">
+                <div class="text-xs text-slate-500">Edge Isolation Forest</div>
+                <div class="text-2xl font-bold text-amber-600 mt-1">{{ pct(localTrainRep.metrics?.isolation_forest?.f1_score, '--') }}</div>
+                <div class="text-xs text-slate-400 mt-0.5">FPR: {{ pct(localTrainRep.metrics?.isolation_forest?.false_positive_rate, '--') }}</div>
+              </div>
+              <div class="bg-white border border-slate-200 rounded-xl p-4">
+                <div class="text-xs text-slate-500">Random Forest 7 kịch bản</div>
+                <div class="text-2xl font-bold text-blue-600 mt-1">{{ pct(localTrainRep.metrics?.rf_scenario?.accuracy, '--') }}</div>
+                <div class="text-xs text-slate-400 mt-0.5">Macro F1: {{ pct(localTrainRep.metrics?.rf_scenario?.macro_f1, '--') }}</div>
+              </div>
+            </div>
+
+            <!-- Bước 1: Danh sách các phiên .pcapng đã thu & trích xuất 14 đặc trưng -->
+            <div v-if="localExtractRep?.sessions" class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+              <div class="px-4 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+                <h2 class="text-sm font-semibold text-slate-800">Bước 1: Các phiên .pcapng đã thu và trích xuất 14 đặc trưng</h2>
+                <span class="text-[11px] text-slate-500">{{ localExtractRep.total_sessions }} phiên | {{ localExtractRep.total_raw_packets?.toLocaleString() }} gói thô</span>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th class="px-4 py-2 font-medium">File Session</th>
+                      <th class="px-4 py-2 font-medium">Kịch bản</th>
+                      <th class="px-4 py-2 font-medium">Node lọc IP</th>
+                      <th class="px-4 py-2 font-medium text-right">Thời lượng</th>
+                      <th class="px-4 py-2 font-medium text-right">Gói thô</th>
+                      <th class="px-4 py-2 font-medium text-right">Cửa sổ 5s</th>
+                      <th class="px-4 py-2 font-medium text-right">Lọc cửa sổ rỗng</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100 font-mono">
+                    <tr v-for="s in localExtractRep.sessions" :key="s.filename">
+                      <td class="px-4 py-2 text-slate-800 whitespace-nowrap">{{ s.filename }}</td>
+                      <td class="px-4 py-2 text-blue-700 whitespace-nowrap">{{ s.scenario_code }} ({{ s.scenario_label }})</td>
+                      <td class="px-4 py-2 text-slate-600">{{ (s.assigned_nodes || []).join(', ') || 'auto' }}</td>
+                      <td class="px-4 py-2 text-right whitespace-nowrap">{{ s.duration_min }} phút</td>
+                      <td class="px-4 py-2 text-right whitespace-nowrap">{{ s.raw_packets?.toLocaleString() }}</td>
+                      <td class="px-4 py-2 text-right font-semibold whitespace-nowrap">{{ s.windows_extracted }}</td>
+                      <td class="px-4 py-2 text-right text-slate-500 whitespace-nowrap">{{ s.empty_windows_skipped ? ('Loại ' + s.empty_windows_skipped + ' rỗng') : (s.empty_windows_kept ? ('Giữ ' + s.empty_windows_kept + ' rỗng') : '-') }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Bước 2: Quy trình Làm sạch, Chia tập Time-Based & Chống Data Leakage -->
+            <div class="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2 class="text-sm font-semibold text-slate-800">Bước 2: Quy trình làm sạch, chia tập và chống rò rỉ dữ liệu</h2>
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+                <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <div class="text-[11px] text-slate-500">Cửa sổ thô</div>
+                  <div class="font-mono font-bold text-slate-800 mt-0.5">{{ (localTrainRep.preprocessing?.raw_rows ?? 0).toLocaleString() }}</div>
+                </div>
+                <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <div class="text-[11px] text-slate-500">Xử lý NaN / ±Inf</div>
+                  <div class="font-mono font-bold text-slate-800 mt-0.5">{{ localTrainRep.preprocessing?.nan_inf_fixed ?? 0 }}</div>
+                </div>
+                <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <div class="text-[11px] text-slate-500">Trùng non-empty xóa</div>
+                  <div class="font-mono font-bold text-slate-800 mt-0.5">{{ localTrainRep.preprocessing?.duplicates_removed ?? 0 }} dòng</div>
+                </div>
+                <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <div class="text-[11px] text-slate-500">Giữ rỗng TH4 Silence</div>
+                  <div class="font-mono font-bold text-blue-700 mt-0.5">{{ localTrainRep.preprocessing?.empty_silence_rows_preserved ?? 0 }} dòng</div>
+                </div>
+                <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <div class="text-[11px] text-slate-500">Overlap Train–Test</div>
+                  <div class="font-mono font-bold text-emerald-600 mt-0.5">{{ localTrainRep.preprocessing?.train_test_overlap_non_empty ?? 0 }} mẫu</div>
+                </div>
+                <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <div class="text-[11px] text-slate-500">Cắt ngoại lệ QuantileClipper</div>
+                  <div class="font-mono font-semibold text-slate-800 mt-0.5 text-[11px]">
+                    {{ localTrainRep.preprocessing?.clipped_cells?.train ?? 0 }} / {{ localTrainRep.preprocessing?.clipped_cells?.val ?? 0 }} / {{ localTrainRep.preprocessing?.clipped_cells?.test ?? 0 }}
+                  </div>
+                </div>
+              </div>
+              <div v-if="localTrainRep.preprocessing?.split_per_scenario" class="overflow-x-auto border border-slate-200 rounded-lg">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th class="px-3 py-1.5 font-medium">Kịch bản</th>
+                      <th class="px-3 py-1.5 font-medium text-right">Tổng cửa sổ sạch</th>
+                      <th class="px-3 py-1.5 font-medium text-right">Train (70%)</th>
+                      <th class="px-3 py-1.5 font-medium text-right">Val (15%)</th>
+                      <th class="px-3 py-1.5 font-medium text-right">Test (15%)</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100 font-mono">
+                    <tr v-for="sp in localTrainRep.preprocessing.split_per_scenario" :key="sp.scenario">
+                      <td class="px-3 py-1.5 text-slate-800 font-medium">{{ formatScenarioWithCode(sp.scenario) }}</td>
+                      <td class="px-3 py-1.5 text-right">{{ sp.total }}</td>
+                      <td class="px-3 py-1.5 text-right text-slate-600">{{ sp.train }}</td>
+                      <td class="px-3 py-1.5 text-right text-slate-600">{{ sp.val }}</td>
+                      <td class="px-3 py-1.5 text-right font-semibold text-blue-700">{{ sp.test }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Bước 3 & 4: Bảng đối chuẩn Nhóm 1 & Nhóm 2 trên Local ESP32 -->
+            <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+              <div class="px-4 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+                <h2 class="text-sm font-semibold text-slate-800">Bước 3: Đánh giá mô hình trên tập kiểm thử độc lập</h2>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th class="px-4 py-2 font-medium">Mô hình Local ESP32</th>
+                      <th class="px-4 py-2 font-medium">Bài toán</th>
+                      <th class="px-4 py-2 font-medium text-right">Accuracy</th>
+                      <th class="px-4 py-2 font-medium text-right">Precision</th>
+                      <th class="px-4 py-2 font-medium text-right">Recall</th>
+                      <th class="px-4 py-2 font-medium text-right">F1 / Macro F1</th>
+                      <th class="px-4 py-2 font-medium text-right">FPR</th>
+                      <th class="px-4 py-2 font-medium text-right">Latency</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    <tr>
+                      <td class="px-4 py-2 font-medium text-slate-700">Decision Tree Baseline</td>
+                      <td class="px-4 py-2 text-slate-500">Phát hiện nhị phân</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.dt_binary_baseline?.accuracy, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.dt_binary_baseline?.precision, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.dt_binary_baseline?.recall, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.dt_binary_baseline?.f1_score, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.dt_binary_baseline?.false_positive_rate, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-500 whitespace-nowrap">{{ localTrainRep.metrics?.dt_binary_baseline?.inference_latency_ms ?? '--' }} ms</td>
+                    </tr>
+                    <tr>
+                      <td class="px-4 py-2 font-semibold text-amber-700">Isolation Forest</td>
+                      <td class="px-4 py-2 text-slate-500">Học không giám sát</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.isolation_forest?.accuracy, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.isolation_forest?.precision, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.isolation_forest?.recall, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono font-semibold text-amber-700">{{ pct(localTrainRep.metrics?.isolation_forest?.f1_score, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.isolation_forest?.false_positive_rate, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-500 whitespace-nowrap">{{ localTrainRep.metrics?.isolation_forest?.inference_latency_ms ?? '--' }} ms</td>
+                    </tr>
+                    <tr>
+                      <td class="px-4 py-2 font-semibold text-blue-700">Random Forest Binary</td>
+                      <td class="px-4 py-2 text-slate-500">Học có giám sát</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.rf_binary?.accuracy, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.rf_binary?.precision, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.rf_binary?.recall, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono font-semibold text-blue-700">{{ pct(localTrainRep.metrics?.rf_binary?.f1_score, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.rf_binary?.false_positive_rate, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-500 whitespace-nowrap">{{ localTrainRep.metrics?.rf_binary?.inference_latency_ms ?? '--' }} ms</td>
+                    </tr>
+                    <tr class="bg-slate-50/70">
+                      <td class="px-4 py-2 font-medium text-slate-700">Decision Tree Baseline 7 kịch bản</td>
+                      <td class="px-4 py-2 text-slate-500">Phân loại 7 kịch bản</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.dt_scenario_baseline?.accuracy, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-400">—</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-400">—</td>
+                      <td class="px-4 py-2 text-right font-mono">{{ pct(localTrainRep.metrics?.dt_scenario_baseline?.macro_f1, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-400">—</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-500 whitespace-nowrap">{{ localTrainRep.metrics?.dt_scenario_baseline?.inference_latency_ms ?? '--' }} ms</td>
+                    </tr>
+                    <tr class="bg-blue-50/30">
+                      <td class="px-4 py-2 font-semibold text-slate-900">Random Forest 7 kịch bản</td>
+                      <td class="px-4 py-2 text-slate-500">Phân loại 7 kịch bản</td>
+                      <td class="px-4 py-2 text-right font-mono font-semibold">{{ pct(localTrainRep.metrics?.rf_scenario?.accuracy, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-400">—</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-400">—</td>
+                      <td class="px-4 py-2 text-right font-mono font-semibold text-blue-700">{{ pct(localTrainRep.metrics?.rf_scenario?.macro_f1, '--') }}</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-400">—</td>
+                      <td class="px-4 py-2 text-right font-mono text-slate-500 whitespace-nowrap">{{ localTrainRep.metrics?.rf_scenario?.inference_latency_ms ?? '--' }} ms</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Chi tiết theo từng kịch bản & Ma trận nhầm lẫn trên Test -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4" v-if="localTrainRep.scenario_breakdown">
+              <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl overflow-hidden">
+                <div class="px-4 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+                  <h3 class="text-xs font-semibold text-slate-700">Độ chính xác từng kịch bản trên tập kiểm thử</h3>
+                </div>
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
+                      <tr>
+                        <th class="px-3 py-2 font-medium">Kịch bản</th>
+                        <th class="px-3 py-2 font-medium text-right">Mẫu Test</th>
+                        <th class="px-3 py-2 font-medium text-right">IF Flagged</th>
+                        <th class="px-3 py-2 font-medium text-right">RF Binary Flag</th>
+                        <th class="px-3 py-2 font-medium text-right">RF Scenario Acc</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 font-mono">
+                      <tr v-for="sb in localTrainRep.scenario_breakdown" :key="sb.scenario_label">
+                        <td class="px-3 py-2 font-medium text-slate-800 font-mono">{{ formatScenarioWithCode(sb.scenario_label) }}</td>
+                        <td class="px-3 py-2 text-right">{{ sb.test_samples }}</td>
+                        <td class="px-3 py-2 text-right whitespace-nowrap" :class="sb.scenario_label === 'normal' ? 'text-amber-700' : 'text-emerald-700 font-semibold'">
+                          {{ pct(sb.iso_flagged_rate, '--') }}
+                        </td>
+                        <td class="px-3 py-2 text-right">{{ pct(sb.rf_bin_flagged_rate, '--') }}</td>
+                        <td class="px-3 py-2 text-right font-semibold text-blue-700">{{ pct(sb.rf_scenario_acc, '--') }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="bg-white border border-slate-200 rounded-xl p-4 space-y-3" v-if="localTrainRep.metrics?.isolation_forest?.confusion_matrix">
+                <h3 class="text-xs font-semibold text-slate-700">Ma trận nhầm lẫn — Edge Isolation Forest</h3>
+                <div class="grid grid-cols-2 gap-2 text-center">
+                  <div class="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                    <div class="text-[11px] text-emerald-700">True Normal</div>
+                    <div class="text-lg font-bold font-mono text-emerald-800">{{ localTrainRep.metrics.isolation_forest.confusion_matrix[0][0] }}</div>
+                  </div>
+                  <div class="p-2.5 rounded-lg bg-amber-50 border border-amber-200">
+                    <div class="text-[11px] text-amber-700">False Alarm</div>
+                    <div class="text-lg font-bold font-mono text-amber-800">{{ localTrainRep.metrics.isolation_forest.confusion_matrix[0][1] }}</div>
+                  </div>
+                  <div class="p-2.5 rounded-lg bg-rose-50 border border-rose-200">
+                    <div class="text-[11px] text-rose-700">Missed Anomaly</div>
+                    <div class="text-lg font-bold font-mono text-rose-800">{{ localTrainRep.metrics.isolation_forest.confusion_matrix[1][0] }}</div>
+                  </div>
+                  <div class="p-2.5 rounded-lg bg-blue-50 border border-blue-200">
+                    <div class="text-[11px] text-blue-700">True Anomaly</div>
+                    <div class="text-lg font-bold font-mono text-blue-800">{{ localTrainRep.metrics.isolation_forest.confusion_matrix[1][1] }}</div>
+                  </div>
+                </div>
+                <div v-if="localTrainRep.metrics?.rf_binary?.confusion_matrix" class="pt-2 border-t border-slate-100 text-[11px] font-mono text-slate-600 flex flex-wrap justify-between gap-2">
+                  <span>RF Binary CM:</span>
+                  <span>TN={{ localTrainRep.metrics.rf_binary.confusion_matrix[0][0] }}, FP={{ localTrainRep.metrics.rf_binary.confusion_matrix[0][1] }}, FN={{ localTrainRep.metrics.rf_binary.confusion_matrix[1][0] }}, TP={{ localTrainRep.metrics.rf_binary.confusion_matrix[1][1] }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Nhật ký Extract & Train -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div v-if="localExtractRep?.extract_log" class="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="text-xs font-semibold text-slate-700">Nhật ký trích xuất 14 đặc trưng</h3>
+                  <a href="/api/logs/files/extract_features.log" target="_blank" class="text-[11px] font-mono text-blue-600 hover:underline">/logs/extract_features.log</a>
+                </div>
+                <pre class="bg-slate-900 text-sky-300 font-mono text-[11px] leading-relaxed p-3 rounded-lg overflow-x-auto max-h-80 custom-scrollbar whitespace-pre">{{ localExtractRep.extract_log }}</pre>
+              </div>
+              <div v-if="localTrainRep?.training_log" class="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="text-xs font-semibold text-slate-700">Nhật ký huấn luyện mô hình</h3>
+                  <a href="/api/logs/files/train_local.log" target="_blank" class="text-[11px] font-mono text-blue-600 hover:underline">/logs/train_local.log</a>
+                </div>
+                <pre class="bg-slate-900 text-emerald-300 font-mono text-[11px] leading-relaxed p-3 rounded-lg overflow-x-auto max-h-80 custom-scrollbar whitespace-pre">{{ localTrainRep.training_log }}</pre>
+              </div>
+            </div>
+          </template>
+
+          <!-- Trường hợp chưa chạy thu thập thực tế tối nay -->
+          <template v-else>
+            <div class="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 class="text-base font-bold text-slate-900">Sẵn sàng cho Pipeline Thu thập &amp; Huấn luyện Local ESP32</h2>
+                  <p class="text-xs text-slate-500 mt-1">
+                    Hệ thống hiện đang nạp model baseline tạm <b>{{ localReport.schema_version || 'v1_6features' }}</b> ({{ localReport.model_n_features || 6 }} đặc trưng).
+                    Khi bật Raspberry Pi 5 &amp; 6 mạch ESP32, chạy 4 lệnh dưới đây trên PC để tạo báo cáo chi tiết tại đây:
+                  </p>
+                </div>
+                <span class="px-3 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-xs font-medium">
+                  Chờ phiên thu thực tế
+                </span>
+              </div>
+              <pre class="bg-slate-900 text-emerald-300 font-mono text-xs p-4 rounded-xl overflow-x-auto leading-relaxed">1. powershell scripts/deploy_to_pi5.ps1                                              # Đẩy script thu thập mới nhất lên Pi 5
+2. ssh -t pi@192.168.137.35 "python3 /home/pi/AIoT/scripts/collect_sessions.py"      # Chạy TRÊN Pi 5 thu 7 file .pcapng riêng (TH0..TH6)
+3. scp -r pi@192.168.137.35:/home/pi/AIoT/data/sessions/* data/sessions/             # Kéo 7 file .pcapng + manifest từ Pi 5 về PC
+4. python pipeline/extract_features.py &amp;&amp; python models/training/train_local.py     # Trích xuất 14 đặc trưng + làm sạch + train trên PC
+5. powershell scripts/deploy_to_pi5.ps1                                              # Đẩy model .joblib, báo cáo JSON xuống Pi 5</pre>
+            </div>
+          </template>
+        </div>
+      </section>
+
+    </main>
+
+    <div v-if="allAlertsOpen" v-show="!selectedAlertModal" @click.self="closeAllAlertsModal"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+      <section ref="historyDialog" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="history-title"
+               class="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 p-6">
+        <header class="flex items-center justify-between gap-3 mb-4">
+          <h2 id="history-title" class="text-lg font-semibold text-slate-900">Tất cả sự cố</h2>
+          <button type="button" @click="closeAllAlertsModal" aria-label="Đóng lịch sử" class="text-slate-500 hover:text-slate-900 px-2">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </header>
+        <form @submit.prevent="applyAlertFilters" class="flex flex-wrap gap-3 items-end mb-4 text-xs">
+          <label class="flex flex-col gap-1 flex-1 min-w-[12rem]">
+            <span class="font-medium text-slate-600">Tìm kiếm</span>
+            <input v-model="alertFilters.search" type="search" maxlength="150" placeholder="Thiết bị, phân loại, mô hình"
+                   class="rounded-lg border border-slate-300 px-3 py-2">
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="font-medium text-slate-600">Thiết bị</span>
+            <select v-model="alertFilters.device_key" @change="applyAlertFilters" class="rounded-lg border border-slate-300 px-3 py-2">
+              <option value="">Tất cả</option>
+              <option v-for="node in deviceOptions" :key="node" :value="node">{{ node }}</option>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="font-medium text-slate-600">Mức độ</span>
+            <select v-model="alertFilters.severity" @change="applyAlertFilters" class="rounded-lg border border-slate-300 px-3 py-2">
+              <option value="">Tất cả</option>
+              <option v-for="level in ['HIGH', 'MEDIUM', 'LOW']" :key="level">{{ level }}</option>
+            </select>
+          </label>
+          <button type="submit" class="rounded-lg bg-blue-600 text-white px-3 py-2 hover:bg-blue-700">Lọc</button>
+          <a :href="alertExportUrl" class="rounded-lg border border-slate-300 px-3 py-2 text-slate-700 hover:bg-slate-50">
+            <i class="fa-solid fa-file-csv mr-1"></i>Xuất CSV
+          </a>
+        </form>
+        <div class="border border-slate-200 rounded-xl overflow-auto max-h-[55vh]">
+          <p v-if="alertsHistory.loading || alertsHistory.error" role="status" class="p-4 text-xs"
+             :class="alertsHistory.error ? 'text-rose-700' : 'text-slate-500'">
+            {{ alertsHistory.error || 'Đang tải lịch sử…' }}
+          </p>
+          <alert-table v-else :items="alertsHistory.items" @detail="openAlertDetail"></alert-table>
+        </div>
+        <footer class="flex flex-wrap justify-between items-center gap-3 mt-4 text-xs text-slate-600">
+          <span>{{ alertsHistory.total }} sự cố · Trang {{ alertsHistory.page }} / {{ alertsPageCount }}</span>
+          <div class="flex gap-2">
+            <button type="button" @click="fetchAlertsPage(alertsHistory.page - 1)"
+                    :disabled="alertsHistory.loading || alertsHistory.page <= 1"
+                    class="border border-slate-300 rounded-lg px-3 py-2 disabled:opacity-40">Trước</button>
+            <button type="button" @click="fetchAlertsPage(alertsHistory.page + 1)"
+                    :disabled="alertsHistory.loading || alertsHistory.page >= alertsPageCount"
+                    class="border border-slate-300 rounded-lg px-3 py-2 disabled:opacity-40">Tiếp</button>
+          </div>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="selectedAlertModal" @click.self="closeAlertDetail"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+      <section ref="alertDialog" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="incident-title"
+               class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 p-6">
+        <header class="flex items-center justify-between gap-3 pb-4 border-b border-slate-200">
+          <h2 id="incident-title" class="text-lg font-semibold text-slate-900 break-all">
+            <i class="fa-solid fa-triangle-exclamation text-amber-500 mr-2"></i>{{ alertCategory(selectedAlertModal) }}
+          </h2>
+          <button type="button" @click="closeAlertDetail" aria-label="Đóng chi tiết" class="text-slate-500 hover:text-slate-900 px-2">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </header>
+        <dl class="grid grid-cols-1 sm:grid-cols-[11rem_minmax(0,1fr)] text-sm gap-x-4 gap-y-2 py-4">
+          <dt class="text-slate-500">Thiết bị</dt>
+          <dd class="text-slate-900">{{ selectedAlertModal.device_name || selectedAlertModal.device_key }}
+            <span v-if="selectedAlertModal.device_name" class="text-slate-500 font-mono text-xs">({{ selectedAlertModal.device_key }})</span>
+          </dd>
+          <dt class="text-slate-500">Thời gian phát hiện</dt>
+          <dd>{{ formatAlertTimestamp(selectedAlertModal.created_at) }}</dd>
+          <dt class="text-slate-500">Mô hình kích hoạt</dt>
+          <dd>{{ alertModelName(selectedAlertModal) }} <span class="text-xs text-slate-500">{{ selectedAlertModal.model_version }}</span></dd>
+          <dt class="text-slate-500">Anomaly Score</dt>
+          <dd v-if="alertScore !== null" class="space-y-1">
+            <div class="font-mono font-semibold" :class="alertScore < 0 ? 'text-rose-700' : 'text-emerald-700'">{{ alertScore }}</div>
+            <div class="h-2 rounded-full bg-slate-100 overflow-hidden" aria-hidden="true">
+              <div class="h-full" :class="alertScore < 0 ? 'bg-rose-500' : 'bg-emerald-500'" :style="scoreBarStyle(alertScore)"></div>
+            </div>
+          </dd>
+          <dd v-else class="text-slate-400">—</dd>
+          <dt class="text-slate-500">Mức độ cảnh báo</dt>
+          <dd><span class="px-2 py-0.5 rounded-full border text-xs font-semibold"
+                    :class="alertSeverityClass(selectedAlertModal.severity)">{{ alertSeverity(selectedAlertModal.severity) }}</span></dd>
+        </dl>
+        <div v-if="selectedAlertModal.reason_json?.rule || selectedAlertModal.reason_json?.reasons?.length"
+             class="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
+          <p v-if="selectedAlertModal.reason_json.rule">{{ selectedAlertModal.reason_json.rule }}</p>
+          <ul class="space-y-1">
+            <li v-for="(reason, index) in selectedAlertModal.reason_json.reasons" :key="index">{{ reason }}</li>
+          </ul>
+        </div>
+        <h3 class="font-semibold text-sm text-slate-800 mb-2">Ảnh chụp 14 đặc trưng mạng (5 giây)</h3>
+        <p v-if="!Object.keys(selectedAlertModal.features || {}).length" class="text-xs text-slate-500 mb-2">
+          Sự cố này chưa có cửa sổ đã liên kết.
+        </p>
+        <dl class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <div v-for="key in networkFeatures" :key="key" class="p-2 rounded-lg bg-slate-50 border border-slate-200">
+            <dt class="text-slate-500 truncate" :title="key">{{ key }}</dt>
+            <dd class="font-mono font-semibold text-slate-800">{{ selectedAlertModal.features?.[key] ?? '—' }}</dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+  </div>
+
+  <template id="alert-table-template">
+    <table v-if="items.length" class="w-full text-left text-xs">
+      <thead class="bg-slate-50 text-slate-500 border-b border-slate-200 sticky top-0">
+        <tr>
+          <th scope="col" class="px-4 py-2.5 font-medium whitespace-nowrap">Thời gian</th>
+          <th scope="col" class="px-4 py-2.5 font-medium">Thiết bị</th>
+          <th scope="col" class="px-4 py-2.5 font-medium">Phân loại</th>
+          <th scope="col" class="px-4 py-2.5 font-medium">Mức độ</th>
+          <th scope="col" class="px-4 py-2.5 font-medium whitespace-nowrap">Thao tác</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        <tr v-for="a in items" :key="a.id" @click="$emit('detail', a)" class="cursor-pointer hover:bg-slate-50">
+          <td class="px-4 py-2 font-mono text-slate-500 whitespace-nowrap">{{ formatTime(a.created_at) }}</td>
+          <td class="px-4 py-2"><span class="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-slate-700">{{ a.device_key }}</span></td>
+          <td class="px-4 py-2"><span class="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700 whitespace-nowrap">{{ alertCategory(a) }}</span></td>
+          <td class="px-4 py-2">
+            <span class="px-2 py-0.5 rounded-full border font-semibold" :class="alertSeverityClass(a.severity)">{{ alertSeverity(a.severity) }}</span>
+          </td>
+          <td class="px-4 py-2">
+            <button type="button" @click.stop="$emit('detail', a)" class="whitespace-nowrap text-blue-700 hover:underline">
+              <i class="fa-regular fa-eye mr-1"></i>Chi tiết
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p v-else class="py-10 text-center text-xs text-slate-500">Chưa có cảnh báo phù hợp.</p>
+  </template>
+
+  <script>
+    const { createApp, nextTick } = Vue;
+
+    const NODE_COLORS = ['#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2'];
+    let trafficChartInst = null;
+    let nodeBarChartInst = null;
+    let ciciotChartInst = null;
+
+    const DEVICE_OPTIONS = Array.from({ length: 6 }, (_, i) => `esp32_${String(i + 1).padStart(2, '0')}`);
+    const NETWORK_FEATURES = [
+      'packet_count', 'byte_count', 'packet_rate', 'byte_rate', 'len_mean', 'len_std', 'len_max',
+      'iat_mean', 'iat_std', 'iat_max', 'tcp_syn_count', 'tcp_fin_count', 'tcp_rst_count', 'is_empty_window'
+    ];
+    const ALERT_PAGE_SIZE = 20;
+    const ALERT_SEVERITY = {
+      CRITICAL: 'HIGH', ERROR: 'HIGH', WARNING: 'MEDIUM', WARN: 'MEDIUM', INFO: 'LOW', DEBUG: 'LOW'
+    };
+    const ALERT_SEVERITY_STYLE = {
+      HIGH: 'bg-rose-50 text-rose-700 border-rose-200',
+      MEDIUM: 'bg-amber-50 text-amber-700 border-amber-200',
+      LOW: 'bg-slate-100 text-slate-600 border-slate-200'
+    };
+    const ALERT_CATEGORIES = {
+      SILENCE_TIMEOUT: 'DISCONNECT', TH4_SILENCE: 'DISCONNECT', TH3_RECONNECT: 'RECONNECT',
+      AUTH_FAILURE: 'AUTH_FAIL', TH6_AUTH_FAIL: 'AUTH_FAIL',
+      TH1_HIGH_RATE: 'TRAFFIC_ANOMALY', TH2_LARGE_PAYLOAD: 'TRAFFIC_ANOMALY', TH5_BURST_TRAFFIC: 'TRAFFIC_ANOMALY'
+    };
+    const OBSERVATION_MODELS = [
+      { key: 'local_iso', label: 'Isolation Forest' },
+      { key: 'local_rf_binary', label: 'Random Forest nhị phân' },
+      { key: 'local_rf_scenario', label: 'Random Forest (7 kịch bản)' }
+    ];
+    const alertSeverity = severity => ALERT_SEVERITY[severity?.toUpperCase()] || severity?.toUpperCase() || '—';
+    const alertSeverityClass = severity => ALERT_SEVERITY_STYLE[alertSeverity(severity)] || ALERT_SEVERITY_STYLE.LOW;
+    const alertCategory = alert => ALERT_CATEGORIES[alert.predicted_label] || alert.predicted_label;
+    const formatTime = ts => ts ? new Date(ts * 1000).toLocaleTimeString('vi-VN') : '--:--:--';
+    const formatScenarioWithCode = label => {
+      if (!label) return '—';
+      const l = String(label).toLowerCase().trim();
+      const map = {
+        'normal': 'TH0: normal',
+        'high_rate': 'TH1: high_rate',
+        'large_payload': 'TH2: large_payload',
+        'reconnect': 'TH3: reconnect',
+        'silence': 'TH4: silence',
+        'burst': 'TH5: burst',
+        'auth_fail': 'TH6: auth_fail'
+      };
+      return map[l] || label;
+    };
+    const alertFilterParams = filters => {
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([name, value]) => {
+        if (value.trim()) params.set(name, value.trim());
+      });
+      return params;
+    };
+    let observationStream = null;
+    let observationTimer = null;
+
+    createApp({
+      components: {
+        AlertTable: {
+          template: '#alert-table-template',
+          props: { items: { type: Array, required: true } },
+          emits: ['detail'],
+          methods: { alertSeverity, alertSeverityClass, alertCategory, formatTime }
+        }
+      },
+      data() {
+        return {
+          currentTab: 'live_hardware',
+          localSubTab: 'windows',
+          demoSubTab: 'replay',
+          modelSubTab: 'ciciot',
+          ciciotInfo: {},
+          localReport: {},
+          windowLogs: [],
+          logFiles: [],
+          logSource: 'runtime',
+          totalWindowsDb: 0,
+          sysStatus: {},
+          windowsList: [],
+          isWindowsPaused: false,
+          windowFilterDevice: 'all',
+          windowLimit: 120,
+          packetsList: [],
+          capturesList: [],
+          devicesList: [],
+          alertsList: [],
+          totalAlertsCount: null,
+          recentAlertsLoading: false,
+          recentAlertsError: '',
+          selectedAlertModal: null,
+          allAlertsOpen: false,
+          alertFilters: { search: '', device_key: '', severity: '' },
+          appliedAlertFilters: { search: '', device_key: '', severity: '' },
+          alertsHistory: { page: 1, items: [], total: 0, loading: false, error: '', requestId: 0 },
+          deviceOptions: DEVICE_OPTIONS,
+          networkFeatures: NETWORK_FEATURES,
+          observationModels: OBSERVATION_MODELS,
+          observationTarget: DEVICE_OPTIONS[0],
+          observation: { target: DEVICE_OPTIONS[0], active: false, seconds: 5, count: 0, packets: [], results: [], error: '' },
+          refreshTimer: null,
+          historyFocus: null,
+          detailFocus: null,
+          selectedAttack: 'DDoS-SYN_Flood',
+          selectedModel: 'rf_binary',
+          replayLoading: false,
+          replayResult: null,
+          simResult: null,
+          scenarioButtons: [
+            { code: 'TH0', label: 'TH0 Bình thường', activeClass: 'bg-emerald-600 border-emerald-600 text-white' },
+            { code: 'TH1', label: 'TH1 Gói cao',     activeClass: 'bg-amber-600 border-amber-600 text-white' },
+            { code: 'TH2', label: 'TH2 Gói lớn',     activeClass: 'bg-amber-600 border-amber-600 text-white' },
+            { code: 'TH3', label: 'TH3 Ngắt nối',    activeClass: 'bg-purple-600 border-purple-600 text-white' },
+            { code: 'TH5', label: 'TH5 Burst',       activeClass: 'bg-blue-600 border-blue-600 text-white' },
+            { code: 'TH4', label: 'TH4 Im lặng',     activeClass: 'bg-rose-600 border-rose-600 text-white' }
+          ],
+          simScenarios: [
+            { code: 'TH0', name: 'Normal',        hint: '1 gói / 2s',    color: 'text-emerald-600' },
+            { code: 'TH1', name: 'High Rate',     hint: '15 gói / s',    color: 'text-amber-600' },
+            { code: 'TH2', name: 'Large Payload', hint: 'Gói 1.5 KB',    color: 'text-amber-600' },
+            { code: 'TH3', name: 'Reconnect',     hint: 'Ngắt/nối lại',  color: 'text-purple-600' },
+            { code: 'TH4', name: 'Silence',       hint: 'Mất kết nối',   color: 'text-rose-600' },
+            { code: 'TH5', name: 'Burst',         hint: 'Xả 20 gói',     color: 'text-blue-600' },
+            { code: 'TH6', name: 'Auth Fail',     hint: 'Sai xác thực',  color: 'text-red-600' }
+          ]
+        }
+      },
+      computed: {
+        alertsPageCount() {
+          return Math.max(1, Math.ceil(this.alertsHistory.total / ALERT_PAGE_SIZE));
+        },
+        alertExportUrl() {
+          return `/api/alerts/export_csv?${alertFilterParams(this.appliedAlertFilters)}`;
+        },
+        alertScore() {
+          const alert = this.selectedAlertModal;
+          const score = alert?.reason_json?.anomaly_score ?? (alert?.alert_type === 'ml' ? alert.score : null);
+          return Number.isFinite(score) ? score : null;
+        },
+        onlineCount() {
+          return this.devicesList.filter(d => d.status === 'online').length;
+        },
+        totalPacketRate() {
+          return this.devicesList.reduce((acc, d) => acc + (this.latestWindowFor(d.id)?.packet_rate || 0), 0);
+        },
+        totalByteRate() {
+          return this.devicesList.reduce((acc, d) => acc + (this.latestWindowFor(d.id)?.byte_rate || 0), 0);
+        },
+        hasRecentAnomaly() {
+          const now = Date.now() / 1000;
+          return this.alertsList.some(a => (now - a.created_at) < 30);
+        },
+        recentAlertCount() {
+          const now = Date.now() / 1000;
+          return this.alertsList.filter(a => (now - a.created_at) < 300).length;
+        },
+        availableLabels() {
+          return this.ciciotInfo.labels?.length ? this.ciciotInfo.labels : [
+            'BenignTraffic', 'DDoS-SYN_Flood', 'DDoS-UDP_Flood', 'DDoS-ICMP_Flood',
+            'DoS-SYN_Flood', 'Recon-PortScan', 'SqlInjection', 'DNS_Spoofing', 'Mirai-udpplain'
+          ];
+        },
+        binMetrics() { return this.ciciotInfo.metrics?.binary_random_forest; },
+        multiMetrics() { return this.ciciotInfo.metrics?.multiclass_random_forest; },
+        isoMetrics() { return this.ciciotInfo.metrics?.isolation_forest; },
+        dtBinMetrics() { return this.ciciotInfo.metrics?.dt_binary_baseline; },
+        dtMultiMetrics() { return this.ciciotInfo.metrics?.dt_multiclass_baseline; },
+        cicPrep() { return this.ciciotInfo.preprocessing; },
+        localTrainRep() { return this.localReport.training_report || null; },
+        localExtractRep() { return this.localReport.extract_report || this.localTrainRep?.extract_summary || null; }
+      },
+      watch: {
+        currentTab(val) {
+          nextTick(() => {
+            if (val === 'live_hardware') {
+              this.initLiveCharts();
+              this.updateLiveCharts();
+            } else if (val === 'local_dataset') {
+              this.fetchPackets();
+              this.fetchCaptures();
+              this.fetchWindowLogs();
+              this.fetchLogFiles();
+              this.fetchLocalReport();
+            } else if (val === 'ciciot') {
+              this.fetchLocalReport();
+              if (this.modelSubTab === 'ciciot') this.initCICIoTChart();
+            }
+          });
+        },
+        modelSubTab(val) {
+          if (this.currentTab === 'ciciot' && val === 'ciciot') {
+            nextTick(() => this.initCICIoTChart());
+          }
+        },
+        ciciotInfo() {
+          if (this.currentTab === 'ciciot' && this.modelSubTab === 'ciciot') {
+            nextTick(() => this.initCICIoTChart());
+          }
+        }
+      },
+      mounted() {
+        Chart.defaults.color = '#64748b';
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.font.size = 11;
+
+        this.fetchSysStatus();
+        this.fetchCICIoTInfo();
+        this.fetchLocalReport();
+        this.fetchDevices();
+        this.fetchAlerts();
+        this.fetchWindows();
+        this.fetchPackets();
+        this.fetchCaptures();
+        this.fetchWindowLogs();
+        this.fetchLogFiles();
+        nextTick(() => this.initLiveCharts());
+
+        document.addEventListener('keydown', this.handleAlertDialogKey);
+        this.refreshTimer = setInterval(() => {
+          this.fetchSysStatus();
+          this.fetchDevices();
+          this.fetchAlerts();
+          this.fetchWindows();
+          if (this.currentTab === 'local_dataset') {
+            this.fetchPackets();
+            this.fetchCaptures();
+            if (this.localSubTab === 'logs') this.fetchWindowLogs();
+          }
+        }, 3000);
+      },
+      beforeUnmount() {
+        document.removeEventListener('keydown', this.handleAlertDialogKey);
+        clearInterval(this.refreshTimer);
+        this.finishObservation();
+      },
+      methods: {
+        alertSeverity,
+        alertSeverityClass,
+        alertCategory,
+        formatScenarioWithCode,
+        formatAlertTimestamp(ts) {
+          return ts ? new Date(ts * 1000).toLocaleString('vi-VN') : '—';
+        },
+        formatPacketTimestamp(ts) {
+          const stamp = new Date(ts * 1000);
+          return `${formatTime(ts)}.${String(stamp.getMilliseconds()).padStart(3, '0')}`;
+        },
+        alertModelName(alert) {
+          const version = (alert.model_version || '').toLowerCase();
+          if (version.includes('randomforest') || version.includes('random_forest')) return 'Random Forest';
+          if (version.includes('watchdog')) return 'Watchdog Rule';
+          if (version.includes('isolation') || alert.alert_type === 'ml') return 'Isolation Forest';
+          if (alert.alert_type === 'tshark') return 'Tshark';
+          return 'Quy tắc mạng';
+        },
+        openAlertDetail(alert) {
+          this.detailFocus = document.activeElement;
+          this.selectedAlertModal = alert;
+          nextTick(() => this.$refs.alertDialog?.focus());
+        },
+        closeAlertDetail() {
+          this.selectedAlertModal = null;
+          nextTick(() => {
+            if (this.detailFocus?.isConnected) this.detailFocus.focus();
+            else if (this.allAlertsOpen) this.$refs.historyDialog?.focus();
+            this.detailFocus = null;
+          });
+        },
+        openAllAlertsModal() {
+          this.historyFocus = document.activeElement;
+          this.allAlertsOpen = true;
+          this.applyAlertFilters();
+          nextTick(() => this.$refs.historyDialog?.focus());
+        },
+        closeAllAlertsModal() {
+          this.allAlertsOpen = false;
+          this.alertsHistory.requestId++;
+          nextTick(() => {
+            this.historyFocus?.focus();
+            this.historyFocus = null;
+          });
+        },
+        handleAlertDialogKey(event) {
+          const dialog = this.selectedAlertModal ? this.$refs.alertDialog : this.$refs.historyDialog;
+          if (!dialog) return;
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            if (this.selectedAlertModal) this.closeAlertDetail();
+            else this.closeAllAlertsModal();
+          }
+          if (event.key !== 'Tab') return;
+          const elements = Array.from(dialog.querySelectorAll('button:not(:disabled), a[href], input, select'));
+          const active = document.activeElement;
+          if (!elements.length) {
+            event.preventDefault();
+          } else if (event.shiftKey && (active === elements[0] || !elements.includes(active))) {
+            event.preventDefault();
+            elements.at(-1).focus();
+          } else if (!event.shiftKey && (active === elements.at(-1) || !elements.includes(active))) {
+            event.preventDefault();
+            elements[0].focus();
+          }
+        },
+        applyAlertFilters() {
+          this.appliedAlertFilters = { ...this.alertFilters };
+          return this.fetchAlertsPage(1);
+        },
+        async fetchAlertsPage(page) {
+          const history = this.alertsHistory;
+          const requestId = ++history.requestId;
+          history.loading = true;
+          history.error = '';
+          const params = alertFilterParams(this.appliedAlertFilters);
+          params.set('include_total', 'true');
+          params.set('limit', String(ALERT_PAGE_SIZE));
+          params.set('offset', String((page - 1) * ALERT_PAGE_SIZE));
+          try {
+            const response = await fetch(`/api/alerts?${params}`);
+            if (!response.ok) throw new Error('History unavailable');
+            const result = await response.json();
+            if (history.requestId !== requestId) return;
+            if (!Array.isArray(result.items) || !Number.isInteger(result.total)) throw new Error('Invalid history response');
+            history.total = result.total;
+            const maxPage = Math.max(1, Math.ceil(result.total / ALERT_PAGE_SIZE));
+            if (page > maxPage) return this.fetchAlertsPage(maxPage);
+            history.items = result.items;
+            history.page = page;
+          } catch (error) {
+            if (history.requestId === requestId) history.error = 'Không tải được lịch sử cảnh báo.';
+          } finally {
+            if (history.requestId === requestId) history.loading = false;
+          }
+        },
+        observationModelLabel(model) {
+          if (model.status === 'unavailable') return 'Chưa có mô hình 14 đặc trưng';
+          if (model.status === 'error') return 'Lỗi suy luận';
+          if (model.prediction === 'normal') return 'Bình thường';
+          if (model.prediction === 'anomaly') return 'Bất thường';
+          return model.prediction;
+        },
+        startObservation() {
+          this.finishObservation();
+          this.observation = { target: this.observationTarget, active: true, seconds: 5, count: 0, packets: [], results: [], error: '' };
+          const params = new URLSearchParams({ target_device: this.observationTarget });
+          const stream = new EventSource(`/api/demo/observe?${params}`);
+          observationStream = stream;
+          const timeoutAt = performance.now() + 14000;
+          let deadline = null;
+          observationTimer = setInterval(() => {
+            const now = performance.now();
+            if (now >= timeoutAt) {
+              this.finishObservation('Quá thời gian chờ dữ liệu từ gateway.');
+            } else if (deadline !== null) {
+              this.observation.seconds = Math.max(0, Math.ceil((deadline - now) / 100) / 10);
+            }
+          }, 100);
+          stream.addEventListener('ready', event => {
+            deadline = performance.now() + JSON.parse(event.data).duration * 1000;
+          });
+          stream.addEventListener('packets', event => {
+            if (observationStream !== stream) return;
+            const packets = JSON.parse(event.data);
+            this.observation.count += packets.length;
+            this.observation.packets = [...this.observation.packets, ...packets].slice(-300);
+            nextTick(() => {
+              const terminal = this.$refs.observationConsole;
+              if (terminal) terminal.scrollTop = terminal.scrollHeight;
+            });
+          });
+          stream.addEventListener('result', event => {
+            if (observationStream !== stream) return;
+            const result = JSON.parse(event.data);
+            this.observation.results = result.devices;
+            this.observation.count = result.packet_count;
+            this.finishObservation();
+          });
+          stream.addEventListener('failed', event => {
+            if (observationStream === stream) this.finishObservation(JSON.parse(event.data).message);
+          });
+          stream.onerror = () => {
+            if (observationStream === stream) this.finishObservation('Mất kết nối với luồng Tshark trên gateway.');
+          };
+        },
+        finishObservation(error = '') {
+          observationStream?.close();
+          observationStream = null;
+          clearInterval(observationTimer);
+          observationTimer = null;
+          if (this.observation.active) {
+            this.observation.active = false;
+            this.observation.seconds = 0;
+            this.observation.error = error;
+          }
+        },
+        tabClass(tab) {
+          return this.currentTab === tab
+            ? 'px-3.5 py-2.5 text-xs font-semibold text-blue-600 border-b-2 border-blue-600 whitespace-nowrap'
+            : 'px-3.5 py-2.5 text-xs font-medium text-slate-500 hover:text-slate-800 border-b-2 border-transparent whitespace-nowrap';
+        },
+        subTabClass(sub) {
+          return this.demoSubTab === sub
+            ? 'px-3 py-1.5 text-xs font-semibold rounded-md bg-white text-slate-900 shadow-sm'
+            : 'px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:text-slate-900';
+        },
+        localSubClass(sub) {
+          return this.localSubTab === sub
+            ? 'px-3 py-1.5 text-xs font-semibold rounded-md bg-white text-slate-900 shadow-sm'
+            : 'px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:text-slate-900';
+        },
+        modelSubClass(sub) {
+          return this.modelSubTab === sub
+            ? 'px-3 py-1.5 text-xs font-semibold rounded-md bg-white text-slate-900 shadow-sm'
+            : 'px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:text-slate-900';
+        },
+        formatTime(ts) {
+          if (!ts) return '--:--:--';
+          return new Date(ts * 1000).toLocaleTimeString('vi-VN');
+        },
+        pct(val, fallback) {
+          return typeof val === 'number' ? (val * 100).toFixed(2) + '%' : fallback;
+        },
+        latestWindowFor(deviceId) {
+          const w = this.windowsList.find(item => item.device_key === deviceId);
+          return w?.features || null;
+        },
+        isNodeAnomalous(dev) {
+          const w = this.latestWindowFor(dev.id);
+          const now = Date.now() / 1000;
+          const activeAlert = this.alertsList.some(a => a.device_key === dev.id && (now - a.created_at) < 15);
+          return !dev.current_scenario.startsWith('TH0') || activeAlert || (w && (w.packet_rate >= 8 || (w.len_mean ?? w.mean_packet_len ?? 0) >= 600));
+        },
+        scoreBarStyle(score) {
+          const clamped = Math.max(-0.35, Math.min(0.35, score));
+          const pct = Math.abs(clamped) / 0.35 * 50;
+          return clamped < 0
+            ? { width: pct + '%', marginLeft: (50 - pct) + '%' }
+            : { width: pct + '%', marginLeft: '50%' };
+        },
+        async fetchSysStatus() {
+          try {
+            const res = await fetch('/api/system/status');
+            this.sysStatus = await res.json();
+          } catch(e) {}
+        },
+        async fetchCICIoTInfo() {
+          try {
+            const res = await fetch('/api/ciciot/info');
+            this.ciciotInfo = await res.json();
+          } catch(e) {}
+        },
+        async fetchLocalReport() {
+          try {
+            const res = await fetch('/api/local/report');
+            this.localReport = await res.json();
+          } catch(e) {}
+        },
+        async fetchWindowLogs() {
+          try {
+            const res = await fetch('/api/logs/windows?limit=30');
+            const data = await res.json();
+            this.windowLogs = data.logs || [];
+            this.totalWindowsDb = data.total_windows_db || 0;
+          } catch(e) {}
+        },
+        async fetchLogFiles() {
+          try {
+            const res = await fetch('/api/logs/files');
+            const data = await res.json();
+            this.logFiles = data.files || [];
+          } catch(e) {}
+        },
+        async fetchDevices() {
+          try {
+            const res = await fetch('/api/devices');
+            this.devicesList = await res.json();
+          } catch(e) {}
+        },
+        isAnomalyWindow(w) {
+          if (!w || !w.features) return false;
+          const f = w.features;
+          if (f.scenario_label && f.scenario_label !== 'TH0_NORMAL' && f.scenario_label !== 'normal') return true;
+          if ((f.packet_count || 0) > 10) return true;
+          if ((f.total_bytes || f.byte_count || 0) > 2000) return true;
+          if ((f.len_mean || f.mean_packet_len || 0) > 500) return true;
+          if ((f.tcp_rst_count || 0) > 0) return true;
+          if ((f.tcp_syn_count || 0) >= 2) return true;
+          if (f.is_empty_window === 1) return true;
+          return false;
+        },
+        getScenarioBadge(w) {
+          const sc = w?.features?.scenario_label;
+          if (!sc || sc === 'TH0_NORMAL' || sc === 'normal') return null;
+          if (sc.includes('TH1')) return { label: 'TH1 GÓI CAO', cls: 'bg-rose-100 text-rose-700 border-rose-300' };
+          if (sc.includes('TH2')) return { label: 'TH2 PAYLOAD LỚN', cls: 'bg-purple-100 text-purple-700 border-purple-300' };
+          if (sc.includes('TH3')) return { label: 'TH3 RECONNECT', cls: 'bg-amber-100 text-amber-700 border-amber-300' };
+          if (sc.includes('TH4')) return { label: 'TH4 SILENCE', cls: 'bg-slate-200 text-slate-700 border-slate-400' };
+          if (sc.includes('TH5')) return { label: 'TH5 BURST', cls: 'bg-orange-100 text-orange-700 border-orange-300' };
+          if (sc.includes('TH6')) return { label: 'TH6 AUTH FAIL', cls: 'bg-red-100 text-red-700 border-red-300' };
+          return { label: sc, cls: 'bg-rose-50 text-rose-600 border-rose-200' };
+        },
+        async fetchAlerts() {
+          if (this.recentAlertsLoading) return;
+          this.recentAlertsLoading = true;
+          try {
+            const res = await fetch('/api/alerts?limit=40&include_total=true');
+            if (!res.ok) throw new Error('Alerts unavailable');
+            const result = await res.json();
+            if (!Array.isArray(result.items) || !Number.isInteger(result.total)) throw new Error('Invalid alerts response');
+            this.alertsList = result.items;
+            this.totalAlertsCount = result.total;
+            this.recentAlertsError = '';
+          } catch (error) {
+            this.recentAlertsError = 'Chưa cập nhật được cảnh báo từ gateway.';
+          } finally {
+            this.recentAlertsLoading = false;
+          }
+        },
+        async fetchWindows() {
+          if (this.isWindowsPaused && this.currentTab === 'local_dataset' && this.localSubTab === 'windows') {
+            return;
+          }
+          try {
+            const devQuery = this.windowFilterDevice && this.windowFilterDevice !== 'all' ? `&device_key=${this.windowFilterDevice}` : '';
+            const res = await fetch(`/api/windows?limit=${this.windowLimit}${devQuery}`);
+            this.windowsList = await res.json();
+            if (this.currentTab === 'live_hardware') {
+              this.updateLiveCharts();
+            }
+          } catch(e) {}
+        },
+        async fetchPackets() {
+          try {
+            const res = await fetch('/api/packets?limit=60');
+            this.packetsList = await res.json();
+          } catch(e) {}
+        },
+        async fetchCaptures() {
+          try {
+            const res = await fetch('/api/captures');
+            this.capturesList = await res.json();
+          } catch(e) {}
+        },
+        async sendControl(deviceId, scenario) {
+          try {
+            await fetch(`/api/devices/${deviceId}/control`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ scenario })
+            });
+            this.fetchDevices();
+          } catch(e) {}
+        },
+        async runReplay() {
+          this.replayLoading = true;
+          try {
+            const res = await fetch('/api/ciciot/replay', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ attack_label: this.selectedAttack, model_type: this.selectedModel })
+            });
+            this.replayResult = await res.json();
+          } catch(e) {
+            alert('Lỗi suy luận: ' + e);
+          } finally {
+            this.replayLoading = false;
+          }
+        },
+        async triggerSim(sc) {
+          try {
+            const res = await fetch('/api/simulator/trigger', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ scenario: sc })
+            });
+            this.simResult = await res.json();
+          } catch(e) {}
+        },
+        initLiveCharts() {
+          const lineEl = document.getElementById('trafficChart');
+          if (lineEl) {
+            if (trafficChartInst) trafficChartInst.destroy();
+            const datasets = Array.from({ length: 6 }, (_, i) => ({
+              label: `Node ${i + 1}`,
+              data: [],
+              borderColor: NODE_COLORS[i],
+              backgroundColor: NODE_COLORS[i],
+              borderWidth: 2,
+              pointRadius: 2.5,
+              tension: 0.25
+            }));
+            trafficChartInst = new Chart(lineEl, {
+              type: 'line',
+              data: { labels: [], datasets },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                  y: { beginAtZero: true, suggestedMax: 2, grid: { color: '#f1f5f9' }, border: { display: false } },
+                  x: { grid: { display: false } }
+                },
+                plugins: {
+                  legend: { position: 'bottom', labels: { boxWidth: 10, usePointStyle: true, padding: 14 } }
+                }
+              }
+            });
+          }
+
+          const barEl = document.getElementById('nodeBarChart');
+          if (barEl) {
+            if (nodeBarChartInst) nodeBarChartInst.destroy();
+            nodeBarChartInst = new Chart(barEl, {
+              type: 'bar',
+              data: {
+                labels: ['Node 1', 'Node 2', 'Node 3', 'Node 4', 'Node 5', 'Node 6'],
+                datasets: [{
+                  label: 'Byte/s',
+                  data: [0, 0, 0, 0, 0, 0],
+                  backgroundColor: NODE_COLORS,
+                  borderRadius: 6
+                }]
+              },
+              options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                  x: { beginAtZero: true, suggestedMax: 150, grid: { color: '#f1f5f9' } },
+                  y: { grid: { display: false } }
+                },
+                plugins: { legend: { display: false } }
+              }
+            });
+          }
+          this.updateLiveCharts();
+        },
+        updateLiveCharts() {
+          if (this.windowsList.length === 0) return;
+
+          if (trafficChartInst) {
+            const buckets = new Map();
+            for (const w of [...this.windowsList].reverse()) {
+              const bucketKey = w.created_at;
+              if (!buckets.has(bucketKey)) buckets.set(bucketKey, {});
+              buckets.get(bucketKey)[w.device_key] = w.features?.packet_rate ?? 0;
+            }
+            const keys = Array.from(buckets.keys()).slice(-10);
+            trafficChartInst.data.labels = keys.map(ts => this.formatTime(ts));
+            for (let i = 0; i < 6; i++) {
+              const devKey = `esp32_0${i + 1}`;
+              trafficChartInst.data.datasets[i].data = keys.map(k => buckets.get(k)[devKey] ?? 0);
+            }
+            trafficChartInst.update('none');
+          }
+
+          if (nodeBarChartInst) {
+            nodeBarChartInst.data.datasets[0].data = Array.from({ length: 6 }, (_, i) => {
+              return this.latestWindowFor(`esp32_0${i + 1}`)?.byte_rate ?? 0;
+            });
+            nodeBarChartInst.update('none');
+          }
+        },
+        initCICIoTChart() {
+          const el = document.getElementById('ciciotCompareChart');
+          if (!el) return;
+          if (ciciotChartInst) ciciotChartInst.destroy();
+          const dt = this.dtBinMetrics;
+          const iso = this.isoMetrics;
+          const b = this.binMetrics;
+          const acc = [
+            dt ? +(dt.accuracy * 100).toFixed(2) : 0,
+            iso ? +(iso.accuracy * 100).toFixed(2) : 0,
+            b ? +(b.accuracy * 100).toFixed(2) : 0
+          ];
+          const f1 = [
+            dt ? +(dt.f1_score * 100).toFixed(2) : 0,
+            iso ? +(iso.f1_score * 100).toFixed(2) : 0,
+            b ? +(b.f1_score * 100).toFixed(2) : 0
+          ];
+          const fpr = [
+            dt ? +(dt.false_positive_rate * 100).toFixed(2) : 0,
+            iso ? +(iso.false_positive_rate * 100).toFixed(2) : 0,
+            b ? +(b.false_positive_rate * 100).toFixed(2) : 0
+          ];
+          ciciotChartInst = new Chart(el, {
+            type: 'bar',
+            data: {
+              labels: ['Decision Tree Baseline', 'Isolation Forest', 'Random Forest'],
+              datasets: [
+                { label: 'Accuracy (%)', data: acc, backgroundColor: '#2563eb', borderRadius: 6 },
+                { label: 'F1-Score (%)', data: f1, backgroundColor: '#10b981', borderRadius: 6 },
+                { label: 'FPR Báo sai (%)', data: fpr, backgroundColor: '#f59e0b', borderRadius: 6 }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                y: { beginAtZero: true, max: 100, grid: { color: '#f1f5f9' } },
+                x: { grid: { display: false } }
+              },
+              plugins: { legend: { position: 'bottom' } }
+            }
+          });
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
