@@ -9,6 +9,8 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "iot
 def get_db_connection():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=10.0, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -145,7 +147,7 @@ def prune_old_records(max_windows=10000, max_packets=5000):
     """Giữ bản ghi mới theo ID và giới hạn lịch sử cảnh báo ở 5.000 bản ghi."""
     try:
         with closing(get_db_connection()) as conn, conn:
-            retention = (("windows", max_windows, "<"), ("packet_logs", max_packets, "<"), ("alerts", 5000, "<="))
+            retention = (("windows", max_windows, "<="), ("packet_logs", max_packets, "<="), ("alerts", 5000, "<="))
             for table, keep, comparison in retention:
                 conn.execute(
                     f"""DELETE FROM {table} WHERE id {comparison} (

@@ -173,15 +173,21 @@ class LiveFeaturePipeline:
             "byte_rate": round(byte_rate, 2)
         }
 
+    def requeue_packets(self, mqtt_snapshots: dict):
+        """Hoàn trả các gói tin vào packet_buffer nếu ghi DB thất bại."""
+        if not mqtt_snapshots:
+            return
+        with self.lock:
+            for k, pkts in mqtt_snapshots.items():
+                if pkts:
+                    existing = self.packet_buffer.get(k, [])
+                    self.packet_buffer[k] = pkts + existing
+
     def process_window(self):
         """Chạy theo chu kỳ 5 giây: gom gói, trích xuất 14 đặc trưng, suy luận & ghi log tường minh."""
         now = time.time()
         ts_start = now - self.window_size
         ts_end = now
-        self.window_seq += 1
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
 
         with self.lock:
             mqtt_snapshots = {k: list(self.packet_buffer[k]) for k in DEVICE_KEYS}
@@ -189,6 +195,32 @@ class LiveFeaturePipeline:
                 self.packet_buffer[k].clear()
 
         wire_snapshots = self.tshark.pop_window_packets()
+
+        conn = None
+        try:
+            conn = get_db_connection()
+            self._execute_window_processing(conn, now, ts_start, ts_end, mqtt_snapshots, wire_snapshots)
+            conn.commit()
+            self.window_seq += 1
+        except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            self.requeue_packets(mqtt_snapshots)
+            self.tshark.requeue_window_packets(wire_snapshots)
+            print(f"[Pipeline] Lỗi ghi DB cửa sổ #{self.window_seq + 1}, đã hoàn trả buffer: {e}")
+            raise
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def _execute_window_processing(self, conn, now, ts_start, ts_end, mqtt_snapshots, wire_snapshots):
+        cursor = conn.cursor()
 
         cursor.execute("SELECT id, last_seen, current_scenario, status FROM devices")
         db_devices = {row["id"]: dict(row) for row in cursor.fetchall()}
@@ -314,6 +346,16 @@ class LiveFeaturePipeline:
                     anomaly_type = "UNKNOWN_ANOMALY"
                     reasons = []
 
+                    sc_pred_vn = {
+                        "normal": "Bình thường",
+                        "high_rate": "Gói cao",
+                        "large_payload": "Gói lớn",
+                        "reconnect": "Tái kết nối",
+                        "silence": "Mất kết nối",
+                        "burst": "Xả burst",
+                        "auth_fail": "Lỗi xác thực",
+                    }.get(sc_pred, sc_pred)
+
                     if features["tcp_rst_count"] >= 2:
                         anomaly_type = "TH6_AUTH_FAIL"
                         reasons.append(f"Cờ TCP RST tăng cao ({features['tcp_rst_count']} RST/5s — nghi từ chối xác thực)")
@@ -333,13 +375,13 @@ class LiveFeaturePipeline:
                         reasons.append(f"Khoảng cách giữa các gói dồn dập (IAT={features['iat_mean']}ms)")
                     elif sc_pred is not None and sc_pred != "normal":
                         anomaly_type = f"TH_{sc_pred.upper()}"
-                        reasons.append(f"ScenarioClassifier phát hiện kịch bản: {sc_pred}")
+                        reasons.append(f"Bộ phân loại kịch bản phát hiện: {sc_pred_vn}")
                     else:
                         anomaly_type = "TRAFFIC_ANOMALY"
                         reasons.append(f"Lệch khỏi phân phối đường cơ sở (Score: {score:.3f})")
 
                     if sc_pred is not None:
-                        reasons.append(f"ScenarioClassifier dự đoán: {sc_pred}")
+                        reasons.append(f"Bộ phân loại kịch bản dự đoán: {sc_pred_vn}")
 
                     alert_src = "ml" if pred == -1 else "rule"
                     model_tag = f"LocalIsolationForest_{schema_tag}" if pred == -1 else f"HybridNetworkRule_{schema_tag}"
@@ -387,9 +429,6 @@ class LiveFeaturePipeline:
                 )
                 """
             )
-
-        conn.commit()
-        conn.close()
 
     def run_loop(self):
         """Vòng lặp chạy ngầm mỗi 5 giây"""

@@ -270,6 +270,16 @@ class TsharkCollector:
             self.window_packets.clear()
         return out
 
+    def requeue_window_packets(self, packets_by_device: dict):
+        """Hoàn trả lại các gói tin vào window_packets nếu lưu DB thất bại."""
+        if not packets_by_device:
+            return
+        with self.lock:
+            for k, pkts in packets_by_device.items():
+                if pkts:
+                    existing = self.window_packets.get(k, [])
+                    self.window_packets[k] = pkts + existing
+
     def _flush_loop(self):
         cycle = 0
         while self.running:
@@ -282,16 +292,18 @@ class TsharkCollector:
     def flush_to_db(self):
         with self.lock:
             packets = list(self.packet_buffer)
-            observations, self.observation_buffer = self.observation_buffer, []
-            self.packet_buffer.clear()
+            observations = list(self.observation_buffer)
             alerts = list(self.pending_alerts)
-            self.pending_alerts.clear()
             ip_updates = dict(self.pending_ip_updates)
+            self.packet_buffer.clear()
+            self.observation_buffer.clear()
+            self.pending_alerts.clear()
             self.pending_ip_updates.clear()
 
         if not packets and not observations and not alerts and not ip_updates:
             return
 
+        conn = None
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -340,6 +352,19 @@ class TsharkCollector:
             conn.close()
         except Exception as e:
             print(f"[Tshark] Lỗi ghi DB: {e}")
+            if conn:
+                try:
+                    conn.rollback()
+                    conn.close()
+                except Exception:
+                    pass
+            # Hoàn trả lại dữ liệu vào hàng đợi nếu ghi DB thất bại (chống mất gói khi DB locked)
+            with self.lock:
+                self.packet_buffer = (packets + self.packet_buffer)[-MAX_PACKET_LOGS:]
+                self.observation_buffer = (observations + self.observation_buffer)[-MAX_OBSERVATION_PACKETS:]
+                self.pending_alerts = alerts + self.pending_alerts
+                for k, v in ip_updates.items():
+                    self.pending_ip_updates.setdefault(k, v)
 
     def _prune_old_captures(self, keep=5):
         try:

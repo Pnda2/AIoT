@@ -230,21 +230,16 @@ def trigger_software_simulator(req: SimulateRequest):
             feats14 = _sim_features_for_scenario(sc)
 
         vec = np.array([[feats14[c] for c in FEATURE_COLUMNS_14]], dtype=float)
-        if feats14["is_empty_window"] == 1:
-            pred = "anomaly"
-            score = -0.35
-            rf_bin_pred = "anomaly"
-        else:
-            p = int(m.predict(vec)[0])
-            score = float(m.decision_function(vec)[0])
-            pred = "normal" if p == 1 else "anomaly"
+        p = int(m.predict(vec)[0])
+        score = float(m.decision_function(vec)[0])
+        pred = "normal" if p == 1 else "anomaly"
 
-            rf_bin = models_cache.get("local_rf_binary")
-            if rf_bin is not None:
-                p_bin = int(rf_bin.predict(vec)[0])
-                rf_bin_pred = "anomaly" if p_bin == 1 else "normal"
-            else:
-                rf_bin_pred = pred
+        rf_bin = models_cache.get("local_rf_binary")
+        if rf_bin is not None:
+            p_bin = int(rf_bin.predict(vec)[0])
+            rf_bin_pred = "anomaly" if p_bin == 1 else "normal"
+        else:
+            rf_bin_pred = pred
 
         scenario_pred = None
         rf_sc = models_cache.get("local_rf_scenario")
@@ -335,29 +330,43 @@ class DeviceControlRequest(BaseModel):
 def control_device(device_id: str, req: DeviceControlRequest):
     """Gửi lệnh MQTT điều khiển kịch bản xuống ESP32-S3 từ Dashboard"""
     topic = f"wievac/control/{device_id}"
-    mqtt_ok = True
     try:
         publish.single(topic, req.scenario, hostname="127.0.0.1", port=1883)
     except Exception as e:
-        mqtt_ok = False
         print(f"[MQTT] Không thể gửi lệnh tới {topic}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Không thể gửi lệnh MQTT tới {topic}. Broker Mosquitto có thể chưa hoạt động hoặc lỗi mạng: {e}"
+        )
 
-    # Cập nhật scenario trong DB
+    SCENARIO_NAME_MAP = {
+        "TH0": "TH0_NORMAL",
+        "TH1": "TH1_HIGH_RATE",
+        "TH2": "TH2_LARGE_PAYLOAD",
+        "TH3": "TH3_RECONNECT",
+        "TH4": "TH4_SILENCE",
+        "TH5": "TH5_BURST",
+        "TH6": "TH6_AUTH_FAIL",
+    }
+    db_scenario = SCENARIO_NAME_MAP.get(req.scenario, req.scenario)
+
+    # Cập nhật scenario trong DB chỉ khi MQTT gửi thành công
     try:
         conn = get_db_connection()
         if device_id == "all":
-            conn.cursor().execute("UPDATE devices SET current_scenario = ?", (req.scenario,))
+            conn.cursor().execute("UPDATE devices SET current_scenario = ?", (db_scenario,))
         else:
-            conn.cursor().execute("UPDATE devices SET current_scenario = ? WHERE id = ?", (req.scenario, device_id))
+            conn.cursor().execute("UPDATE devices SET current_scenario = ? WHERE id = ?", (db_scenario, device_id))
         conn.commit()
         conn.close()
     except Exception as e:
         print(f"[DB] Lỗi cập nhật scenario thiết bị: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lệnh MQTT đã gửi tới topic {topic} nhưng cập nhật trạng thái vào cơ sở dữ liệu thất bại: {e}"
+        )
 
-    if mqtt_ok:
-        return {"status": "success", "message": f"Đã gửi lệnh {req.scenario} tới topic {topic}"}
-    else:
-        return {"status": "warning", "message": f"Đã ghi nhận kịch bản {req.scenario} (MQTT Broker không phản hồi)"}
+    return {"status": "success", "message": f"Đã gửi lệnh {req.scenario} tới topic {topic}"}
 
 ALERT_SEVERITY_ALIASES = {
     "HIGH": ("HIGH", "CRITICAL", "ERROR"),
@@ -499,15 +508,6 @@ def _read_observation_packets(target, start, end, cursor=0, limit=250):
 
 def _observed_model_results(features):
     output = {}
-    if features.get("is_empty_window") == 1:
-        output["local_iso"] = {
-            "status": "complete", "score": -0.35,
-            "prediction": "anomaly",
-        }
-        output["local_rf_binary"] = {"status": "complete", "prediction": "anomaly"}
-        output["local_rf_scenario"] = {"status": "complete", "prediction": "TH4_SILENCE"}
-        return output
-
     vector = np.array([[features[name] for name in FEATURE_COLUMNS_14]], dtype=float)
     for key in OBSERVATION_MODELS:
         model = models_cache.get(key)
@@ -555,6 +555,10 @@ def _observation_result(target, packets, truncated):
     for device, frames in by_device.items():
         if truncated:
             results.append({"device_key": device, "status": "truncated"})
+            continue
+        if not frames:
+            # Báo không thu được gói tin trung thực khi cửa sổ hoàn toàn rỗng
+            results.append({"device_key": device, "status": "no_packets"})
             continue
         features = compute_window_features_14(frames, OBSERVATION_SECONDS)
         results.append({
@@ -660,20 +664,14 @@ def list_captures(max_files: int = 5):
     # Sắp xếp theo modified time giảm dần (mới nhất lên đầu)
     all_files.sort(key=lambda x: x[3], reverse=True)
 
-    # Tự động dọn dẹp các file cũ vượt quá max_files (đảm bảo luôn tối đa 5 file)
-    for name, fpath, size, mtime in all_files[max_files:]:
-        try:
-            os.remove(fpath)
-        except Exception:
-            pass
-
+    # GET là phương thức chỉ đọc: Tuyệt đối không xóa file trên đĩa
     return [
         {
             "filename": name,
             "size_bytes": size,
             "modified_at": mtime
         }
-        for name, fpath, size, mtime in all_files[:max_files]
+        for name, fpath, size, mtime in all_files[:max(1, max_files)]
     ]
 
 @app.get("/api/captures/download/{filename}")

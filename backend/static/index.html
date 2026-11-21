@@ -54,16 +54,16 @@
 
         <!-- TABS -->
         <nav class="flex gap-1 overflow-x-auto -mb-px">
-          <button @click="currentTab = 'live_hardware'" :class="tabClass('live_hardware')">
+          <button @click="switchTab('live_hardware')" :class="tabClass('live_hardware')">
             <i class="fa-solid fa-microchip mr-1.5"></i>Live Hardware
           </button>
-          <button @click="currentTab = 'local_dataset'" :class="tabClass('local_dataset')">
+          <button @click="switchTab('local_dataset')" :class="tabClass('local_dataset')">
             <i class="fa-solid fa-table mr-1.5"></i>Dữ liệu 5s
           </button>
-          <button @click="currentTab = 'demo_lab'" :class="tabClass('demo_lab')">
+          <button @click="switchTab('demo_lab')" :class="tabClass('demo_lab')">
             <i class="fa-solid fa-vial mr-1.5"></i>Demo &amp; Mô phỏng
           </button>
-          <button @click="currentTab = 'ciciot'" :class="tabClass('ciciot')">
+          <button @click="switchTab('ciciot')" :class="tabClass('ciciot')">
             <i class="fa-solid fa-chart-column mr-1.5"></i>Mô hình &amp; Huấn luyện
           </button>
         </nav>
@@ -171,8 +171,8 @@
               <div class="grid grid-cols-3 gap-2 py-2 my-2 border-y border-slate-100 text-xs">
                 <div>
                   <div class="text-slate-400 text-[11px]">Kịch bản</div>
-                  <div class="font-mono font-semibold" :class="dev.current_scenario.startsWith('TH0') ? 'text-emerald-700' : 'text-amber-700'">
-                    {{ dev.current_scenario }}
+                  <div class="font-mono font-semibold" :class="(dev.current_scenario || 'TH0_NORMAL').startsWith('TH0') ? 'text-emerald-700' : 'text-amber-700'">
+                    {{ dev.current_scenario || 'TH0_NORMAL' }}
                   </div>
                 </div>
                 <div>
@@ -187,12 +187,12 @@
                 </div>
               </div>
 
-              <!-- Compact Scenario Buttons -->
+              <!-- Compact Scenario Buttons (TH1..TH6 dạng bật/tắt, mặc định là TH0) -->
               <div class="grid grid-cols-3 gap-1.5 pt-1">
                 <button v-for="sc in scenarioButtons" :key="sc.code"
-                        @click="sendControl(dev.id, sc.code)"
-                        class="px-2 py-1 text-[11px] font-medium rounded-md border transition-colors"
-                        :class="dev.current_scenario.startsWith(sc.code)
+                        @click="toggleNodeScenario(dev, sc.code)"
+                        class="px-2 py-1 text-[11px] font-medium rounded-md border transition-colors text-center truncate"
+                        :class="dev.current_scenario && dev.current_scenario.startsWith(sc.code)
                           ? sc.activeClass
                           : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'">
                   {{ sc.label }}
@@ -1230,9 +1230,9 @@
         </dl>
         <div v-if="selectedAlertModal.reason_json?.rule || selectedAlertModal.reason_json?.reasons?.length"
              class="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
-          <p v-if="selectedAlertModal.reason_json.rule">{{ selectedAlertModal.reason_json.rule }}</p>
+          <p v-if="selectedAlertModal.reason_json.rule">{{ formatReason(selectedAlertModal.reason_json.rule) }}</p>
           <ul class="space-y-1">
-            <li v-for="(reason, index) in selectedAlertModal.reason_json.reasons" :key="index">{{ reason }}</li>
+            <li v-for="(reason, index) in selectedAlertModal.reason_json.reasons" :key="index">{{ formatReason(reason) }}</li>
           </ul>
         </div>
         <h3 class="font-semibold text-sm text-slate-800 mb-2">14 đặc trưng</h3>
@@ -1286,6 +1286,7 @@
     let trafficChartInst = null;
     let nodeBarChartInst = null;
     let ciciotChartInst = null;
+    let currentObsSession = 0;
 
     const DEVICE_OPTIONS = Array.from({ length: 6 }, (_, i) => `esp32_${String(i + 1).padStart(2, '0')}`);
     const NETWORK_FEATURES = [
@@ -1294,26 +1295,50 @@
     ];
     const ALERT_PAGE_SIZE = 20;
     const ALERT_SEVERITY = {
-      CRITICAL: 'HIGH', ERROR: 'HIGH', WARNING: 'MEDIUM', WARN: 'MEDIUM', INFO: 'LOW', DEBUG: 'LOW'
+      CRITICAL: 'CAO', ERROR: 'CAO', HIGH: 'CAO',
+      WARNING: 'TRUNG BÌNH', WARN: 'TRUNG BÌNH', MEDIUM: 'TRUNG BÌNH',
+      INFO: 'THẤP', DEBUG: 'THẤP', LOW: 'THẤP'
     };
     const ALERT_SEVERITY_STYLE = {
-      HIGH: 'bg-rose-50 text-rose-700 border-rose-200',
-      MEDIUM: 'bg-amber-50 text-amber-700 border-amber-200',
-      LOW: 'bg-slate-100 text-slate-600 border-slate-200'
+      'CAO': 'bg-rose-50 text-rose-700 border-rose-200',
+      'TRUNG BÌNH': 'bg-amber-50 text-amber-700 border-amber-200',
+      'THẤP': 'bg-slate-100 text-slate-600 border-slate-200'
     };
     const ALERT_CATEGORIES = {
       SILENCE_TIMEOUT: 'Mất kết nối',
       TH4_SILENCE: 'Mất kết nối',
       DISCONNECT: 'Mất kết nối',
+      silence: 'Mất kết nối',
+
       TH3_RECONNECT: 'Tái kết nối',
       RECONNECT: 'Tái kết nối',
+      reconnect: 'Tái kết nối',
+
       AUTH_FAILURE: 'Lỗi xác thực',
       TH6_AUTH_FAIL: 'Lỗi xác thực',
       AUTH_FAIL: 'Lỗi xác thực',
-      TH1_HIGH_RATE: 'Bất thường lưu lượng',
-      TH2_LARGE_PAYLOAD: 'Bất thường lưu lượng',
-      TH5_BURST_TRAFFIC: 'Bất thường lưu lượng',
+      auth_fail: 'Lỗi xác thực',
+
+      TH1_HIGH_RATE: 'Gói cao',
+      HIGH_RATE: 'Gói cao',
+      high_rate: 'Gói cao',
+
+      TH2_LARGE_PAYLOAD: 'Gói lớn',
+      LARGE_PAYLOAD: 'Gói lớn',
+      large_payload: 'Gói lớn',
+
+      TH5_BURST_TRAFFIC: 'Xả burst',
+      TH5_BURST: 'Xả burst',
+      TH_BURST: 'Xả burst',
+      BURST: 'Xả burst',
+      burst: 'Xả burst',
+
+      TH0_NORMAL: 'Bình thường',
+      NORMAL: 'Bình thường',
+      normal: 'Bình thường',
+
       TRAFFIC_ANOMALY: 'Bất thường lưu lượng',
+      ANOMALY: 'Bất thường lưu lượng',
       UNKNOWN_ANOMALY: 'Bất thường lưu lượng'
     };
     const OBSERVATION_MODELS = [
@@ -1322,24 +1347,24 @@
       { key: 'local_rf_scenario', label: 'Random Forest (7 kịch bản)' }
     ];
     const alertSeverity = severity => ALERT_SEVERITY[severity?.toUpperCase()] || severity?.toUpperCase() || '—';
-    const alertSeverityClass = severity => ALERT_SEVERITY_STYLE[alertSeverity(severity)] || ALERT_SEVERITY_STYLE.LOW;
+    const alertSeverityClass = severity => ALERT_SEVERITY_STYLE[alertSeverity(severity)] || ALERT_SEVERITY_STYLE['THẤP'];
     const alertCategory = alert => {
       if (!alert) return '—';
-      const label = alert.predicted_label || '';
-      return ALERT_CATEGORIES[label] || label || 'Bất thường lưu lượng';
+      const label = alert.predicted_label || alert.alert_type || '';
+      return ALERT_CATEGORIES[label] || ALERT_CATEGORIES[label.toUpperCase()] || 'Bất thường lưu lượng';
     };
     const formatTime = ts => ts ? new Date(ts * 1000).toLocaleTimeString('vi-VN') : '--:--:--';
     const formatScenarioWithCode = label => {
       if (!label) return '—';
       const l = String(label).toLowerCase().trim();
       const map = {
-        'normal': 'TH0: normal',
-        'high_rate': 'TH1: high_rate',
-        'large_payload': 'TH2: large_payload',
-        'reconnect': 'TH3: reconnect',
-        'silence': 'TH4: silence',
-        'burst': 'TH5: burst',
-        'auth_fail': 'TH6: auth_fail'
+        'normal': 'Bình thường',
+        'high_rate': 'Gói cao',
+        'large_payload': 'Gói lớn',
+        'reconnect': 'Tái kết nối',
+        'silence': 'Mất kết nối',
+        'burst': 'Xả burst',
+        'auth_fail': 'Lỗi xác thực'
       };
       return map[l] || label;
     };
@@ -1405,13 +1430,17 @@
           replayResult: null,
           simResult: null,
           activeSimScenario: null,
+          activeSimTarget: null,
+          isUnmounted: false,
+          observationStarting: false,
+          activeObsSessionId: 0,
           scenarioButtons: [
-            { code: 'TH0', label: 'TH0 Bình thường', activeClass: 'bg-emerald-600 border-emerald-600 text-white' },
-            { code: 'TH1', label: 'TH1 Gói cao',     activeClass: 'bg-amber-600 border-amber-600 text-white' },
-            { code: 'TH2', label: 'TH2 Gói lớn',     activeClass: 'bg-amber-600 border-amber-600 text-white' },
-            { code: 'TH3', label: 'TH3 Ngắt nối',    activeClass: 'bg-purple-600 border-purple-600 text-white' },
-            { code: 'TH5', label: 'TH5 Burst',       activeClass: 'bg-blue-600 border-blue-600 text-white' },
-            { code: 'TH4', label: 'TH4 Im lặng',     activeClass: 'bg-rose-600 border-rose-600 text-white' }
+            { code: 'TH1', label: 'TH1 Gói cao',     activeClass: 'bg-amber-600 border-amber-600 text-white shadow-sm' },
+            { code: 'TH2', label: 'TH2 Gói lớn',     activeClass: 'bg-amber-600 border-amber-600 text-white shadow-sm' },
+            { code: 'TH3', label: 'TH3 Ngắt nối',    activeClass: 'bg-purple-600 border-purple-600 text-white shadow-sm' },
+            { code: 'TH4', label: 'TH4 Im lặng',     activeClass: 'bg-rose-600 border-rose-600 text-white shadow-sm' },
+            { code: 'TH5', label: 'TH5 Burst',       activeClass: 'bg-blue-600 border-blue-600 text-white shadow-sm' },
+            { code: 'TH6', label: 'TH6 Auth Fail',   activeClass: 'bg-red-600 border-red-600 text-white shadow-sm' }
           ],
           simScenarios: [
             { code: 'TH0', name: 'Normal',        hint: '1 gói / 2s',    color: 'text-emerald-600' },
@@ -1469,7 +1498,13 @@
         localExtractRep() { return this.localReport.extract_report || this.localTrainRep?.extract_summary || null; }
       },
       watch: {
-        currentTab(val) {
+        currentTab(val, oldVal) {
+          if (oldVal === 'demo_lab') {
+            this.activeObsSessionId = ++currentObsSession;
+            if (this.observation?.active || this.observationStarting) {
+              this.finishObservation();
+            }
+          }
           nextTick(() => {
             if (val === 'live_hardware') {
               this.initLiveCharts();
@@ -1528,6 +1563,9 @@
         }, 3000);
       },
       beforeUnmount() {
+        this.isUnmounted = true;
+        this.activeObsSessionId = ++currentObsSession;
+        this.observationStarting = false;
         document.removeEventListener('keydown', this.handleAlertDialogKey);
         clearInterval(this.refreshTimer);
         this.finishObservation();
@@ -1544,12 +1582,31 @@
           const stamp = new Date(ts * 1000);
           return `${formatTime(ts)}.${String(stamp.getMilliseconds()).padStart(3, '0')}`;
         },
+        formatReason(reason) {
+          if (!reason) return '';
+          return String(reason)
+            .replace(/ScenarioClassifier phát hiện kịch bản:\s*normal/i, 'Phát hiện kịch bản: Bình thường')
+            .replace(/ScenarioClassifier phát hiện kịch bản:\s*high_rate/i, 'Phát hiện kịch bản: Gói cao')
+            .replace(/ScenarioClassifier phát hiện kịch bản:\s*large_payload/i, 'Phát hiện kịch bản: Gói lớn')
+            .replace(/ScenarioClassifier phát hiện kịch bản:\s*reconnect/i, 'Phát hiện kịch bản: Tái kết nối')
+            .replace(/ScenarioClassifier phát hiện kịch bản:\s*silence/i, 'Phát hiện kịch bản: Mất kết nối')
+            .replace(/ScenarioClassifier phát hiện kịch bản:\s*burst/i, 'Phát hiện kịch bản: Xả burst')
+            .replace(/ScenarioClassifier phát hiện kịch bản:\s*auth_fail/i, 'Phát hiện kịch bản: Lỗi xác thực')
+            .replace(/ScenarioClassifier dự đoán:\s*normal/i, 'Bộ phân loại dự đoán: Bình thường')
+            .replace(/ScenarioClassifier dự đoán:\s*high_rate/i, 'Bộ phân loại dự đoán: Gói cao')
+            .replace(/ScenarioClassifier dự đoán:\s*large_payload/i, 'Bộ phân loại dự đoán: Gói lớn')
+            .replace(/ScenarioClassifier dự đoán:\s*reconnect/i, 'Bộ phân loại dự đoán: Tái kết nối')
+            .replace(/ScenarioClassifier dự đoán:\s*silence/i, 'Bộ phân loại dự đoán: Mất kết nối')
+            .replace(/ScenarioClassifier dự đoán:\s*burst/i, 'Bộ phân loại dự đoán: Xả burst')
+            .replace(/ScenarioClassifier dự đoán:\s*auth_fail/i, 'Bộ phân loại dự đoán: Lỗi xác thực')
+            .replace(/Watchdog Timeout \(>8s không nhận được telemetry\)/i, 'Mất kết nối: Quá 8 giây không có dữ liệu từ thiết bị');
+        },
         alertModelName(alert) {
           const version = (alert.model_version || '').toLowerCase();
-          if (version.includes('randomforest') || version.includes('random_forest')) return 'Random Forest';
-          if (version.includes('watchdog')) return 'Watchdog Rule';
-          if (version.includes('isolation') || alert.alert_type === 'ml') return 'Isolation Forest';
-          if (alert.alert_type === 'tshark') return 'Tshark';
+          if (version.includes('randomforest') || version.includes('random_forest')) return 'Mô hình Random Forest';
+          if (version.includes('watchdog')) return 'Quy tắc Watchdog (Mất kết nối)';
+          if (version.includes('isolation') || alert.alert_type === 'ml') return 'Mô hình Isolation Forest';
+          if (alert.alert_type === 'tshark') return 'Bắt gói Tshark';
           return 'Quy tắc mạng';
         },
         openAlertDetail(alert) {
@@ -1637,27 +1694,50 @@
           if (model.prediction === 'anomaly') return 'Bất thường';
           return model.prediction;
         },
-        startObservation() {
-          this.finishObservation();
-          this.observation = { target: this.observationTarget, active: true, seconds: 5, count: 0, packets: [], results: [], error: '' };
-          const params = new URLSearchParams({ target_device: this.observationTarget });
+        closeObservationStream() {
+          if (observationStream) {
+            observationStream.close();
+            observationStream = null;
+          }
+          if (observationTimer) {
+            clearInterval(observationTimer);
+            observationTimer = null;
+          }
+        },
+        startObservation(targetOverride = null, sessionId = null, scenario = null) {
+          if (this.isUnmounted) return;
+          this.closeObservationStream();
+          const currentId = sessionId || ++currentObsSession;
+          if (this.activeObsSessionId && currentId !== this.activeObsSessionId) return;
+          this.activeObsSessionId = currentId;
+          const target = targetOverride || this.observationTarget;
+          const sc = scenario || this.activeSimScenario;
+          this.activeSimTarget = target;
+          this.activeSimScenario = sc;
+          this.observation = { target: target, scenario: sc, active: true, seconds: 5, count: 0, packets: [], results: [], error: '' };
+          const params = new URLSearchParams({ target_device: target });
           const stream = new EventSource(`/api/demo/observe?${params}`);
           observationStream = stream;
           const timeoutAt = performance.now() + 14000;
           let deadline = null;
           observationTimer = setInterval(() => {
+            if (this.isUnmounted || this.activeObsSessionId !== currentId) {
+              clearInterval(observationTimer);
+              return;
+            }
             const now = performance.now();
             if (now >= timeoutAt) {
-              this.finishObservation('Quá thời gian chờ dữ liệu từ gateway.');
+              this.finishObservation('Quá thời gian chờ dữ liệu từ gateway.', currentId);
             } else if (deadline !== null) {
               this.observation.seconds = Math.max(0, Math.ceil((deadline - now) / 100) / 10);
             }
           }, 100);
           stream.addEventListener('ready', event => {
+            if (this.isUnmounted || this.activeObsSessionId !== currentId) return;
             deadline = performance.now() + JSON.parse(event.data).duration * 1000;
           });
           stream.addEventListener('packets', event => {
-            if (observationStream !== stream) return;
+            if (this.isUnmounted || observationStream !== stream || this.activeObsSessionId !== currentId) return;
             const packets = JSON.parse(event.data);
             this.observation.count += packets.length;
             this.observation.packets = [...this.observation.packets, ...packets].slice(-300);
@@ -1667,29 +1747,55 @@
             });
           });
           stream.addEventListener('result', event => {
-            if (observationStream !== stream) return;
+            if (this.isUnmounted || observationStream !== stream || this.activeObsSessionId !== currentId) return;
             const result = JSON.parse(event.data);
             this.observation.results = result.devices;
             this.observation.count = result.packet_count;
-            this.finishObservation();
+            this.finishObservation('', currentId);
           });
           stream.addEventListener('failed', event => {
-            if (observationStream === stream) this.finishObservation(JSON.parse(event.data).message);
+            if (!this.isUnmounted && observationStream === stream && this.activeObsSessionId === currentId) {
+              this.finishObservation(JSON.parse(event.data).message, currentId);
+            }
           });
           stream.onerror = () => {
-            if (observationStream === stream) this.finishObservation('Mất kết nối với luồng Tshark trên gateway.');
+            if (!this.isUnmounted && observationStream === stream && this.activeObsSessionId === currentId) {
+              this.finishObservation('Mất kết nối với luồng Tshark trên gateway.', currentId);
+            }
           };
         },
-        finishObservation(error = '') {
-          observationStream?.close();
-          observationStream = null;
-          clearInterval(observationTimer);
-          observationTimer = null;
-          if (this.observation.active) {
-            this.observation.active = false;
-            this.observation.seconds = 0;
-            this.observation.error = error;
+        async finishObservation(error = '', sessionId = null) {
+          if (sessionId && this.activeObsSessionId && sessionId !== this.activeObsSessionId) {
+            // Phiên cũ hoàn tất sau khi phiên mới đã chạy -> bỏ qua để không ghi đè trạng thái phiên mới
+            return;
           }
+          this.closeObservationStream();
+          const wasActive = this.observation.active;
+          const target = this.observation.target || this.activeSimTarget || this.observationTarget;
+          const scenarioToReset = this.observation.scenario || this.activeSimScenario;
+          this.observation.active = false;
+          this.observation.seconds = 0;
+          if (error) this.observation.error = error;
+          this.activeSimScenario = null;
+          this.activeSimTarget = null;
+
+          // Sau khi chạy xong phiên quan sát 5s, tự động trả node về TH0 (Bình thường)
+          if (wasActive && scenarioToReset && scenarioToReset !== 'TH0') {
+            const ok = await this.sendControl(target, 'TH0');
+            if (!ok && !this.observation.error) {
+              this.observation.error = `Cảnh báo: Không thể gửi lệnh hoàn trả ${target} về TH0 (Mất kết nối MQTT).`;
+            }
+          }
+        },
+        switchTab(tab) {
+          if (this.currentTab === tab) return;
+          if (this.currentTab === 'demo_lab') {
+            this.activeObsSessionId = ++currentObsSession;
+            if (this.observation?.active || this.observationStarting) {
+              this.finishObservation();
+            }
+          }
+          this.currentTab = tab;
         },
         tabClass(tab) {
           return this.currentTab === tab
@@ -1719,6 +1825,7 @@
           return typeof val === 'number' ? (val * 100).toFixed(2) + '%' : fallback;
         },
         latestWindowFor(deviceId) {
+          if (!Array.isArray(this.windowsList)) return null;
           const w = this.windowsList.find(item => item.device_key === deviceId);
           return w?.features || null;
         },
@@ -1726,7 +1833,7 @@
           const w = this.latestWindowFor(dev.id);
           const now = Date.now() / 1000;
           const activeAlert = this.alertsList.some(a => a.device_key === dev.id && (now - a.created_at) < 15);
-          return !dev.current_scenario.startsWith('TH0') || activeAlert || (w && (w.packet_rate >= 8 || (w.len_mean ?? w.mean_packet_len ?? 0) >= 600));
+          return !(dev.current_scenario || 'TH0_NORMAL').startsWith('TH0') || activeAlert || (w && (w.packet_rate >= 8 || (w.len_mean ?? w.mean_packet_len ?? 0) >= 600));
         },
         scoreBarStyle(score) {
           const clamped = Math.max(-0.35, Math.min(0.35, score));
@@ -1771,7 +1878,8 @@
         async fetchDevices() {
           try {
             const res = await fetch('/api/devices');
-            this.devicesList = await res.json();
+            const data = await res.json();
+            if (Array.isArray(data)) this.devicesList = data;
           } catch(e) {}
         },
         isAnomalyWindow(w) {
@@ -1788,7 +1896,7 @@
         },
         getScenarioBadge(w) {
           const sc = w?.features?.scenario_label;
-          if (!sc || sc === 'TH0_NORMAL' || sc === 'normal') return null;
+          if (typeof sc !== 'string' || !sc || sc === 'TH0_NORMAL' || sc === 'normal') return null;
           if (sc.includes('TH1')) return { label: 'TH1 GÓI CAO', cls: 'bg-rose-100 text-rose-700 border-rose-300' };
           if (sc.includes('TH2')) return { label: 'TH2 PAYLOAD LỚN', cls: 'bg-purple-100 text-purple-700 border-purple-300' };
           if (sc.includes('TH3')) return { label: 'TH3 RECONNECT', cls: 'bg-amber-100 text-amber-700 border-amber-300' };
@@ -1821,33 +1929,69 @@
           try {
             const devQuery = this.windowFilterDevice && this.windowFilterDevice !== 'all' ? `&device_key=${this.windowFilterDevice}` : '';
             const res = await fetch(`/api/windows?limit=${this.windowLimit}${devQuery}`);
-            this.windowsList = await res.json();
-            if (this.currentTab === 'live_hardware') {
-              this.updateLiveCharts();
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              this.windowsList = data;
+              if (this.currentTab === 'live_hardware') {
+                this.updateLiveCharts();
+              }
             }
           } catch(e) {}
         },
         async fetchPackets() {
           try {
             const res = await fetch('/api/packets?limit=60');
-            this.packetsList = await res.json();
+            const data = await res.json();
+            if (Array.isArray(data)) this.packetsList = data;
           } catch(e) {}
         },
         async fetchCaptures() {
           try {
             const res = await fetch('/api/captures');
-            this.capturesList = await res.json();
+            const data = await res.json();
+            if (Array.isArray(data)) this.capturesList = data;
           } catch(e) {}
         },
+        toggleNodeScenario(dev, scCode) {
+          const isCurrent = dev.current_scenario && dev.current_scenario.startsWith(scCode);
+          const targetScenario = isCurrent ? 'TH0' : scCode;
+          this.sendControl(dev.id, targetScenario);
+        },
         async sendControl(deviceId, scenario) {
+          const scName = {
+            'TH0': 'TH0_NORMAL',
+            'TH1': 'TH1_HIGH_RATE',
+            'TH2': 'TH2_LARGE_PAYLOAD',
+            'TH3': 'TH3_RECONNECT',
+            'TH4': 'TH4_SILENCE',
+            'TH5': 'TH5_BURST',
+            'TH6': 'TH6_AUTH_FAIL',
+          }[scenario] || scenario;
           try {
-            await fetch(`/api/devices/${deviceId}/control`, {
+            const res = await fetch(`/api/devices/${deviceId}/control`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ scenario })
             });
-            this.fetchDevices();
-          } catch(e) {}
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              console.error(`[Control Error ${res.status}]`, err.detail || res.statusText);
+              await this.fetchDevices();
+              return false;
+            }
+            if (deviceId === 'all') {
+              this.devicesList.forEach(d => { d.current_scenario = scName; });
+            } else {
+              const dev = this.devicesList.find(d => d.id === deviceId);
+              if (dev) dev.current_scenario = scName;
+            }
+            await this.fetchDevices();
+            return true;
+          } catch(e) {
+            console.error('Lỗi gửi lệnh điều khiển:', e);
+            await this.fetchDevices();
+            return false;
+          }
         },
         async runReplay() {
           this.replayLoading = true;
@@ -1865,19 +2009,34 @@
           }
         },
         async selectAndRunScenario(sc) {
-          if (this.observation.active) return;
+          if (this.isUnmounted || this.observation.active || this.observationStarting) return;
+          const sessionId = ++currentObsSession;
+          this.activeObsSessionId = sessionId;
+          this.observationStarting = true;
+          const target = this.observationTarget;
           this.activeSimScenario = sc;
+          this.activeSimTarget = target;
+          this.observation.error = '';
+
           try {
-            await fetch(`/api/devices/${this.observationTarget}/control`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ scenario: sc })
-            });
-            this.fetchDevices();
+            const ok = await this.sendControl(target, sc);
+            if (!ok) {
+              throw new Error('Lỗi gửi lệnh điều khiển xuống thiết bị (HTTP 502/500). Đã hủy phiên quan sát.');
+            }
+            // Kiểm tra nếu component bị tháo, hoặc rời tab demo_lab, hoặc bị phiên mới hủy
+            if (this.isUnmounted || this.currentTab !== 'demo_lab' || sessionId !== this.activeObsSessionId) {
+              if (!this.isUnmounted) await this.sendControl(target, 'TH0');
+              return;
+            }
+            this.startObservation(target, sessionId, sc);
           } catch(e) {
-            console.error('Lỗi gửi lệnh điều khiển ESP32:', e);
+            console.error('Lỗi khởi động kịch bản:', e);
+            this.observation.error = e.message || 'Lỗi gửi lệnh điều khiển ESP32';
+            this.activeSimScenario = null;
+            this.activeSimTarget = null;
+          } finally {
+            this.observationStarting = false;
           }
-          this.startObservation();
         },
         async triggerSim(sc) {
           return this.selectAndRunScenario(sc);
