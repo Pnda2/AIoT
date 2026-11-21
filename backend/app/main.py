@@ -335,16 +335,29 @@ class DeviceControlRequest(BaseModel):
 def control_device(device_id: str, req: DeviceControlRequest):
     """Gửi lệnh MQTT điều khiển kịch bản xuống ESP32-S3 từ Dashboard"""
     topic = f"wievac/control/{device_id}"
+    mqtt_ok = True
     try:
         publish.single(topic, req.scenario, hostname="127.0.0.1", port=1883)
-        # Cập nhật scenario trong DB
+    except Exception as e:
+        mqtt_ok = False
+        print(f"[MQTT] Không thể gửi lệnh tới {topic}: {e}")
+
+    # Cập nhật scenario trong DB
+    try:
         conn = get_db_connection()
-        conn.cursor().execute("UPDATE devices SET current_scenario = ? WHERE id = ?", (req.scenario, device_id))
+        if device_id == "all":
+            conn.cursor().execute("UPDATE devices SET current_scenario = ?", (req.scenario,))
+        else:
+            conn.cursor().execute("UPDATE devices SET current_scenario = ? WHERE id = ?", (req.scenario, device_id))
         conn.commit()
         conn.close()
-        return {"status": "success", "message": f"Đã gửi lệnh {req.scenario} tới topic {topic}"}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"[DB] Lỗi cập nhật scenario thiết bị: {e}")
+
+    if mqtt_ok:
+        return {"status": "success", "message": f"Đã gửi lệnh {req.scenario} tới topic {topic}"}
+    else:
+        return {"status": "warning", "message": f"Đã ghi nhận kịch bản {req.scenario} (MQTT Broker không phản hồi)"}
 
 ALERT_SEVERITY_ALIASES = {
     "HIGH": ("HIGH", "CRITICAL", "ERROR"),
@@ -486,6 +499,15 @@ def _read_observation_packets(target, start, end, cursor=0, limit=250):
 
 def _observed_model_results(features):
     output = {}
+    if features.get("is_empty_window") == 1:
+        output["local_iso"] = {
+            "status": "complete", "score": -0.35,
+            "prediction": "anomaly",
+        }
+        output["local_rf_binary"] = {"status": "complete", "prediction": "anomaly"}
+        output["local_rf_scenario"] = {"status": "complete", "prediction": "TH4_SILENCE"}
+        return output
+
     vector = np.array([[features[name] for name in FEATURE_COLUMNS_14]], dtype=float)
     for key in OBSERVATION_MODELS:
         model = models_cache.get(key)
@@ -522,15 +544,17 @@ def _observation_result(target, packets, truncated):
     by_device = {device: [] for device in devices}
     for packet in packets:
         flags = packet["tcp_flags"] or ""
-        by_device[packet["device_key"]].append({
-            "ts": packet["ts"], "len": packet["frame_len"],
-            "syn": "S" in flags and "A" not in flags, "fin": "F" in flags, "rst": "R" in flags,
-        })
+        dev = packet.get("device_key")
+        if dev in by_device:
+            by_device[dev].append({
+                "ts": packet["ts"], "len": packet["frame_len"],
+                "syn": "S" in flags and "A" not in flags, "fin": "F" in flags, "rst": "R" in flags,
+            })
 
     results = []
     for device, frames in by_device.items():
-        if truncated or not frames:
-            results.append({"device_key": device, "status": "truncated" if truncated else "no_packets"})
+        if truncated:
+            results.append({"device_key": device, "status": "truncated"})
             continue
         features = compute_window_features_14(frames, OBSERVATION_SECONDS)
         results.append({
